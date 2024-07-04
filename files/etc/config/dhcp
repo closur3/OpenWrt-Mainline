@@ -24,8 +24,8 @@ config dnsmasq
         option noresolv '0'
 
 config dhcp 'lan'
-        option start '11'
-        option limit '88'
+        option start '100'
+        option limit '150'
         option ra_dns '0'
         option interface 'lan'
         option leasetime '12h'
