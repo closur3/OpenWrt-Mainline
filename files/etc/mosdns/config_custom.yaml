@@ -21,10 +21,10 @@ plugins:
     type: udp_server
     args:
       entry: local
-      listen: 127.0.0.1:5522
+      listen: :5522
 
   - tag: remote_udp
     type: udp_server
     args:
       entry: remote
-      listen: 127.0.0.1:5533
+      listen: :5533
