@@ -17,14 +17,12 @@ plugins:
         exec: reject 0
       - exec: forward https://208.67.222.222/dns-query
 
-  - tag: local_udp
-    type: udp_server
+  - type: udp_server
     args:
       entry: local
       listen: :5522
 
-  - tag: remote_udp
-    type: udp_server
+  - type: udp_server
     args:
       entry: remote
       listen: :5533
