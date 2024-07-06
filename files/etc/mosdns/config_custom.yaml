@@ -3,18 +3,38 @@ log:
   file: /tmp/mosdns.log
 
 plugins:
+  - tag: cache
+    type: cache
+    args:
+      size: 8192
+      lazy_cache_ttl: 86400
+      dump_file: /etc/mosdns/cache.dump
+      dump_interval: 600
+
   - tag: local
     type: sequence
     args:
       - matches: qtype 65
         exec: reject 0
+
+      - exec: $cache
+      - matches: has_resp
+        exec: accept
+
       - exec: forward https://223.5.5.5/dns-query
+      - matches: "!resp_ip &/var/mosdns/geoip_cn.txt"
+        exec: drop_resp
 
   - tag: remote
     type: sequence
     args:
       - matches: qtype 28 65
         exec: reject 0
+
+      - exec: $cache
+      - matches: has_resp
+        exec: accept
+
       - exec: forward https://208.67.222.222/dns-query
 
   - type: udp_server
