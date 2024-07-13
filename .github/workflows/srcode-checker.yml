@@ -14,11 +14,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@main
 
-      - name: Read repo.json
-        id: repojson
+      - name: Read .repo file
+        id: repofile
         run: |
-          echo "REPO_URL=$(jq -r '.repo_url' repo.json)" >> $GITHUB_ENV
-          echo "REPO_BRANCH=$(jq -r '.repo_branch' repo.json)" >> $GITHUB_ENV
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> $GITHUB_ENV
+          done < .repo
 
       - name: Get Commit Hash
         id: getHash

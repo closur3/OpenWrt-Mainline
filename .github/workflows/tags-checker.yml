@@ -17,16 +17,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@main
 
-      - name: Read repo.json
-        id: repojson
+      - name: Read .repo file
+        id: repofile
         run: |
-          echo "REPO_URL=$(jq -r '.repo_url' repo.json)" >> $GITHUB_ENV
-          echo "REPO_BRANCH=$(jq -r '.repo_branch' repo.json)" >> $GITHUB_ENV
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> $GITHUB_ENV
+          done < .repo
 
       - name: Fetch Latest Tag
         id: fetch_latest_tag
         run: |
-          echo "LATEST_TAG=$(git ls-remote --tags --refs $(jq -r '.repo_url' repo.json) | grep -o 'refs/tags/[vV]*.*' | sort -V | tail -n1 | sed 's/refs\/tags\///')" >> $GITHUB_ENV
+          echo "LATEST_TAG=$(git ls-remote --tags --refs $REPO_URL | grep -o 'refs/tags/[vV]*.*' | sort -V | tail -n1 | sed 's/refs\/tags\///')" >> $GITHUB_ENV
 
       - name: Compare Versions
         id: compare_versions
@@ -38,14 +39,14 @@ jobs:
             echo "::notice::📡Already the latest version: ${{ env.REPO_BRANCH }}"
           fi
 
-      - name: Update repo.json
+      - name: Update .repo file
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          jq --arg LATEST_VERSION "${{ env.LATEST_TAG }}" '.repo_branch = $LATEST_VERSION' repo.json > tmp.$$.json && mv tmp.$$.json repo.json
+          sed -i "s|^REPO_BRANCH=.*|REPO_BRANCH=${{ env.LATEST_TAG }}|" .repo
           echo "::notice::📡New stable release version found: ${{ env.LATEST_TAG }}"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add repo.json
+          git add .repo
           git commit -m "Update repo_branch to ${{ env.LATEST_TAG }}"
           git push
 
