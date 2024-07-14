@@ -33,7 +33,6 @@ config dhcp 'lan'
         option ra '0'
         option dns_service '0'
         list dhcp_option '6,10.0.0.7'
-        option ignore '0'
 
 config odhcpd 'odhcpd'
         option maindhcp '0'
