@@ -1,5 +1,5 @@
 config dnsmasq
-        option filter_aaaa '1'
+        option filter_aaaa '0'
         option cachesize '0'
         option min_cache_ttl '0'
         option domainneeded '1'
@@ -33,7 +33,7 @@ config dhcp 'lan'
         option ra '0'
         option dns_service '0'
         list dhcp_option '6,10.0.0.7'
-        option ignore '1'
+        option ignore '0'
 
 config odhcpd 'odhcpd'
         option maindhcp '0'

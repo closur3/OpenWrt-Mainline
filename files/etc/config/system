@@ -10,4 +10,5 @@ config system
 config timeserver 'ntp'
 	option enabled '1'
 	option enable_server '0'
-	list server 'time.apple.com'
+	list server 'ntp.tencent.com'
+	list server 'ntp.neu.edu.cn'
