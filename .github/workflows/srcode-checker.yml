@@ -2,9 +2,13 @@
 name: Srcode Checker
 
 on:
-  workflow_dispatch:
+  push:
+    paths:
+      - 'files/**'
   schedule:
     - cron: 30 1,13 * * *
+  workflow_dispatch:
+
 
 jobs:
   check:
