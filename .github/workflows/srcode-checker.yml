@@ -1,14 +1,13 @@
-
 name: Srcode Checker
 
 on:
   push:
     paths:
+      - '.config'
       - 'files/**'
   schedule:
     - cron: 30 1,13 * * *
   workflow_dispatch:
-
 
 jobs:
   check:
@@ -79,7 +78,7 @@ jobs:
           echo "::notice::🖥️Status of the last run: $STATUS"
 
       - name: Trigger Build
-        if: env.BUILDER_STATUS != 'success' || steps.cacheHash.outputs.cache-hit != 'true'
+        if: env.BUILDER_STATUS != 'success' || steps.cacheHash.outputs.cache-hit != 'true' || github.event_name == 'push'
         uses: peter-evans/repository-dispatch@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -87,7 +86,7 @@ jobs:
 
       - name: Notify Build Trigger
         run: |
-          if [[ ${{ env.BUILDER_STATUS }} != 'success' || ${{ steps.cacheHash.outputs.cache-hit }} != 'true' ]]; then
+          if [[ ${{ env.BUILDER_STATUS }} != 'success' || ${{ steps.cacheHash.outputs.cache-hit }} != 'true' || ${{ github.event_name }} == 'push' ]]; then
             echo "::notice::📦Trigger build: true"
           else
             echo "::notice::📦Trigger build: false"
