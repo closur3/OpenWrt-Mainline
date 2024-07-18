@@ -48,9 +48,9 @@ jobs:
           WORKFLOW_NAME="OpenWrt Builder"
           OWNER="${{ github.repository_owner }}"
           REPO="${{ github.event.repository.name }}"
-
           WORKFLOW_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/$OWNER/$REPO/actions/workflows" | jq -r --arg NAME "$WORKFLOW_NAME" '.workflows[] | select(.name == $NAME) | .id')
+          "https://api.github.com/repos/$OWNER/$REPO/actions/workflows" | \
+          jq -r --arg NAME "$WORKFLOW_NAME" '.workflows[] | select(.name == $NAME) | .id')
 
           if [ -z "$WORKFLOW_ID" ]; then
             echo "Workflow not found"
@@ -59,38 +59,30 @@ jobs:
 
           RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           "https://api.github.com/repos/$OWNER/$REPO/actions/workflows/$WORKFLOW_ID/runs?status=success&per_page=1")
-
           STATUS=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].conclusion')
           LAST_RUN_TIME=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].updated_at')
+
           if [ "$LAST_RUN_TIME" == "null" ]; then
             TIME_DIFF=0
-            echo "::notice::🕘Last run time: $LAST_RUN_TIME"
+            echo "::notice::🕘Last build: null"
           else
             TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
-            echo "::notice::🕘Last run time: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
-            if [ "$TIME_DIFF" -gt 30 ]; then
+            echo "::notice::🕘Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
+            if [ "$TIME_DIFF" -gt 30 ] || [ "${{ steps.cacheHash.outputs.cache-hit }}" != 'true' ]; then
               STATUS=stale
             fi
           fi
 
           echo "BUILDER_STATUS=$STATUS" >> $GITHUB_ENV
-          echo "::notice::🕒Time since last run: $TIME_DIFF days"
-          echo "::notice::🖥️Status of the last run: $STATUS"
+          echo "::notice::🕒Time diff: $TIME_DIFF days"
+          echo "::notice::🖥️Status: $STATUS"
 
       - name: Trigger Build
-        if: env.BUILDER_STATUS != 'success' || steps.cacheHash.outputs.cache-hit != 'true' || github.event_name == 'push'
+        if: env.BUILDER_STATUS != 'success' || github.event_name == 'push'
         uses: peter-evans/repository-dispatch@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: Source Code Updater
-
-      - name: Notify Build Trigger
-        run: |
-          if [[ ${{ env.BUILDER_STATUS }} != 'success' || ${{ steps.cacheHash.outputs.cache-hit }} != 'true' || ${{ github.event_name }} == 'push' ]]; then
-            echo "::notice::📦Trigger build: true"
-          else
-            echo "::notice::📦Trigger build: false"
-          fi
 
       - name: Delete Expired Workflows
         uses: Mattraks/delete-workflow-runs@main
