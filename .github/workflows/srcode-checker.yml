@@ -62,7 +62,7 @@ jobs:
           STATUS=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].conclusion')
           LAST_RUN_TIME=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].updated_at')
 
-          if [ "$LAST_RUN_TIME" == "null" ]; then
+          if [ "$LAST_RUN_TIME" == 'null' ]; then
             TIME_DIFF=0
             echo "::notice::🕘Last build: null"
           else
@@ -70,6 +70,8 @@ jobs:
             echo "::notice::🕘Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
             if [ "$TIME_DIFF" -gt 30 ] || [ "${{ steps.cacheHash.outputs.cache-hit }}" != 'true' ]; then
               STATUS=stale
+            elif [ "${{ github.event_name }}" == 'push' ]; then
+              STATUS=push
             fi
           fi
 
@@ -78,7 +80,7 @@ jobs:
           echo "::notice::🖥️Status: $STATUS"
 
       - name: Trigger Build
-        if: env.BUILDER_STATUS != 'success' || github.event_name == 'push'
+        if: env.BUILDER_STATUS != 'success'
         uses: peter-evans/repository-dispatch@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
