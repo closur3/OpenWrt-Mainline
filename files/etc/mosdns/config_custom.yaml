@@ -14,7 +14,9 @@ plugins:
   - tag: local_sequence
     type: sequence
     args:
-      - exec: forward https://223.5.5.5/dns-query
+      - exec: forward tls://223.5.5.5 tls://223.6.6.6
+      - matches: qtype 12
+        exec: accept
       - matches: "!resp_ip &/var/mosdns/geoip_cn.txt"
         exec: drop_resp
 
@@ -23,7 +25,7 @@ plugins:
     args:
       - matches: qtype 28
         exec: reject 0
-      - exec: forward https://208.67.222.222/dns-query
+      - exec: forward tls://208.67.222.222
 
   - tag: fallback
     type: fallback
@@ -42,9 +44,6 @@ plugins:
       - exec: $cache
       - matches: has_resp
         exec: accept
-
-      - matches: qtype 12
-        exec: forward https://223.5.5.5/dns-query
 
       - matches: qname &/var/mosdns/geosite_cn.txt
         exec: $local_sequence
