@@ -5,5 +5,5 @@ config mosdns 'config'
 	option geo_update_day_time '2'
 	option enabled '1'
 	option configfile '/etc/mosdns/config_custom.yaml'
-	option redirect '0'
+	option redirect '1'
 
