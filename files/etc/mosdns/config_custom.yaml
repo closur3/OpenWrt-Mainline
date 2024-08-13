@@ -7,7 +7,7 @@ plugins:
     type: cache
     args:
       size: 8192
-      lazy_cache_ttl: 86400
+      lazy_cache_ttl: 259200
       dump_file: /etc/mosdns/cache.dump
       dump_interval: 600
 
@@ -38,7 +38,7 @@ plugins:
   - tag: main
     type: sequence
     args:
-      - matches: qtype 65
+      - matches: qtype 65 #28
         exec: reject 0
 
       - exec: $cache
