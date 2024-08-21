@@ -5,12 +5,9 @@ on:
     inputs:
       cleanup_releases:
         description: 'Cleanup Releases'
-        required: true
-        default: 'false'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   clean:
@@ -24,7 +21,7 @@ jobs:
           keep_minimum_runs: 0
         
       - name: Cleanup Releases
-        if: ${{ github.event.inputs.cleanup_releases == 'true' }}
+        if: github.event.inputs.cleanup_releases == 'true'
         uses: dev-drprasad/delete-older-releases@master
         with:
           keep_latest: 0
