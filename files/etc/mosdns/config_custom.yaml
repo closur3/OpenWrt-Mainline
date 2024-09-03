@@ -25,7 +25,7 @@ plugins:
     args:
       - matches: qtype 28
         exec: reject 0
-      - exec: forward tls://208.67.222.222
+      - exec: forward tls://208.67.222.222 tls://8.8.4.4
 
   - tag: fallback
     type: fallback
