@@ -10,5 +10,5 @@ config system
 config timeserver 'ntp'
 	option enabled '1'
 	option enable_server '0'
-	list server 'ntp1.nim.ac.cn'
-	list server 'time.neu.edu.cn'
+	list server 'ntp.tencent.com'
+	list server 'ntp.aliyun.com'
