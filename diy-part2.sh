@@ -26,4 +26,4 @@ git clone https://github.com/sbwml/luci-app-mosdns package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
 # BUILD DATE
-sed -i "s/\(DISTRIB_DESCRIPTION='.*\)'/\1 (Built on $(date +\"%Y-%m-%d\"))'/" package/base-files/files/etc/openwrt_release
+sed -i "s/\(DISTRIB_DESCRIPTION='.*\)'/\1 (Built on $(date +%Y-%m-%d))'/" package/base-files/files/etc/openwrt_release
