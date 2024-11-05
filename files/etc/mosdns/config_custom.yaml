@@ -9,14 +9,28 @@ plugins:
       size: 8192
       lazy_cache_ttl: 259200
       dump_file: /etc/mosdns/cache.dump
-      dump_interval: 600
+      dump_interval: 3600
+
+  - tag: local_dns
+    type: forward
+    args:
+      concurrent: 2
+      upstreams:
+        - addr: tls://223.5.5.5
+        - addr: tls://223.6.6.6
+
+  - tag: remote_dns
+    type: forward
+    args:
+      concurrent: 2
+      upstreams:
+        - addr: tls://8.8.4.4
+        - addr: tls://208.67.222.222
 
   - tag: local_sequence
     type: sequence
     args:
-      - exec: forward tls://223.5.5.5 tls://223.6.6.6
-      - matches: qtype 12
-        exec: accept
+      - exec: $local_dns
       - matches: "!resp_ip &/var/mosdns/geoip_cn.txt"
         exec: drop_resp
 
@@ -25,7 +39,7 @@ plugins:
     args:
       - matches: qtype 28
         exec: reject 0
-      - exec: forward tls://208.67.222.222 tls://8.8.4.4
+      - exec: $remote_dns
 
   - tag: fallback
     type: fallback
@@ -40,6 +54,9 @@ plugins:
     args:
       - matches: qtype 65 #28
         exec: reject 0
+
+      - matches: qtype 12
+        exec: $local_dns
 
       - exec: $cache
       - matches: has_resp
@@ -61,3 +78,6 @@ plugins:
     args:
       entry: main
       listen: :5522
+
+api:
+  http: :9091
