@@ -27,7 +27,12 @@ jobs:
       - name: Fetch Latest Tag
         id: fetch_latest_tag
         run: |
-          echo "LATEST_TAG=$(git ls-remote --tags --refs $REPO_URL | grep -o 'refs/tags/[vV]*.*' | sort -V | tail -n1 | sed 's/refs\/tags\///')" >> $GITHUB_ENV
+          echo "LATEST_TAG=$(git ls-remote --tags --refs $REPO_URL |
+            grep -v '\-rc\|-alpha\|-beta\|-preview' |
+            grep -o 'refs/tags/[vV]*.*' |
+            sort -V |
+            tail -n1 |
+            sed 's/refs\/tags\///')" >> $GITHUB_ENV
 
       - name: Compare Versions
         id: compare_versions
