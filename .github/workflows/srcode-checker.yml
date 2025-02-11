@@ -5,6 +5,7 @@ on:
     paths:
       - '.config'
       - 'files/**'
+      - '*.sh'
   schedule:
     - cron: 30 1,13 * * *
   workflow_dispatch:
