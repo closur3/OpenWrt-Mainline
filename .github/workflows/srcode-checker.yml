@@ -86,14 +86,6 @@ jobs:
           echo "BUILDER_STATUS=$STATUS" >> $GITHUB_ENV
           echo "::notice::🕒Time diff: $TIME_DIFF days"
           echo "::notice::🖥️Status: $STATUS"
-          
-          if [ "${{ steps.cacheOpenwrtHash.outputs.cache-hit }}" != 'true' ]; then
-            echo "::notice::📢OpenWrt source code updated"
-          fi
-          
-          if [ "${{ steps.cacheOpenClashHash.outputs.cache-hit }}" != 'true' ]; then
-            echo "::notice::📢OpenClash source code updated"
-          fi
 
       - name: Trigger Build
         if: env.BUILDER_STATUS != 'success'
