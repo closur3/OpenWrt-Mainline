@@ -1,5 +1,4 @@
 name: Srcode Checker
-
 on:
   push:
     paths:
@@ -9,11 +8,9 @@ on:
   schedule:
     - cron: 30 1,13 * * *
   workflow_dispatch:
-
 jobs:
   check:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -25,23 +22,37 @@ jobs:
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
 
-      - name: Get Commit Hash
-        id: getHash
+      - name: Get OpenWrt Commit Hash
+        id: getOpenwrtHash
         run: |
           git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
-          echo "commitHash=$(git -C openwrt rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "openwrtCommitHash=$(git -C openwrt rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Compare Commit Hash
-        id: cacheHash
+      - name: Get OpenClash Commit Hash
+        id: getOpenClashHash
+        run: |
+          git clone --depth 1 ${{ env.OPENCLASH_URL }} -b ${{ env.OPENCLASH_BRANCH }} openclash
+          echo "openclashCommitHash=$(git -C openclash rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Compare OpenWrt Commit Hash
+        id: cacheOpenwrtHash
         uses: actions/cache@main
         with:
-          path: .commitHash
-          key: HEAD-${{ steps.getHash.outputs.commitHash }}
+          path: .openwrtCommitHash
+          key: OPENWRT-HEAD-${{ steps.getOpenwrtHash.outputs.openwrtCommitHash }}
 
-      - name: Save New Commit Hash
-        if: steps.cacheHash.outputs.cache-hit != 'true'
+      - name: Compare OpenClash Commit Hash
+        id: cacheOpenClashHash
+        uses: actions/cache@main
+        with:
+          path: .openclashCommitHash
+          key: OPENCLASH-HEAD-${{ steps.getOpenClashHash.outputs.openclashCommitHash }}
+
+      - name: Save New Commit Hashes
+        if: steps.cacheOpenwrtHash.outputs.cache-hit != 'true' || steps.cacheOpenClashHash.outputs.cache-hit != 'true'
         run: |
-          echo ${{ steps.getHash.outputs.commitHash }} | tee .commitHash
+          echo ${{ steps.getOpenwrtHash.outputs.openwrtCommitHash }} | tee .openwrtCommitHash
+          echo ${{ steps.getOpenClashHash.outputs.openclashCommitHash }} | tee .openclashCommitHash
 
       - name: Check OpenWrt Builder Status
         id: check_builder_status
@@ -52,33 +63,37 @@ jobs:
           WORKFLOW_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           "https://api.github.com/repos/$OWNER/$REPO/actions/workflows" | \
           jq -r --arg NAME "$WORKFLOW_NAME" '.workflows[] | select(.name == $NAME) | .id')
-
           if [ -z "$WORKFLOW_ID" ]; then
             echo "Workflow not found"
             exit 1
           fi
-
           RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           "https://api.github.com/repos/$OWNER/$REPO/actions/workflows/$WORKFLOW_ID/runs?status=completed&per_page=1")
           STATUS=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].conclusion')
           LAST_RUN_TIME=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].updated_at')
-
           if [ "$LAST_RUN_TIME" == 'null' ]; then
             TIME_DIFF=0
             echo "::notice::🕘Last build: null"
           else
             TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
             echo "::notice::🕘Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
-            if [ "$TIME_DIFF" -gt 30 ] || [ "${{ steps.cacheHash.outputs.cache-hit }}" != 'true' ]; then
+            if [ "$TIME_DIFF" -gt 30 ] || [ "${{ steps.cacheOpenwrtHash.outputs.cache-hit }}" != 'true' ] || [ "${{ steps.cacheOpenClashHash.outputs.cache-hit }}" != 'true' ]; then
               STATUS=stale
             elif [ "${{ github.event_name }}" == 'push' ]; then
               STATUS=push
             fi
           fi
-
           echo "BUILDER_STATUS=$STATUS" >> $GITHUB_ENV
           echo "::notice::🕒Time diff: $TIME_DIFF days"
           echo "::notice::🖥️Status: $STATUS"
+          
+          if [ "${{ steps.cacheOpenwrtHash.outputs.cache-hit }}" != 'true' ]; then
+            echo "::notice::📢OpenWrt source code updated"
+          fi
+          
+          if [ "${{ steps.cacheOpenClashHash.outputs.cache-hit }}" != 'true' ]; then
+            echo "::notice::📢OpenClash source code updated"
+          fi
 
       - name: Trigger Build
         if: env.BUILDER_STATUS != 'success'
