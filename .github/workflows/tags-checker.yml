@@ -1,60 +1,76 @@
 name: Tags Checker
-
 defaults:
   run:
     shell: bash
-
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 1,13 * * *'
-
 jobs:
   check:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@main
-
       - name: Read .repo file
         id: repofile
         run: |
           while IFS='=' read -r key value; do
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
-
-      - name: Fetch Latest Tag
-        id: fetch_latest_tag
+      - name: Fetch Latest OpenWRT Tag
+        id: fetch_latest_openwrt_tag
         run: |
-          echo "LATEST_TAG=$(git ls-remote --tags --refs $REPO_URL |
+          echo "LATEST_OPENWRT_TAG=$(git ls-remote --tags --refs $REPO_URL |
             grep -v '\-rc\|-alpha\|-beta\|-preview' |
             grep -o 'refs/tags/[vV]*.*' |
             sort -V |
             tail -n1 |
             sed 's/refs\/tags\///')" >> $GITHUB_ENV
-
-      - name: Compare Versions
-        id: compare_versions
+      - name: Fetch Latest OpenClash Tag
+        id: fetch_latest_openclash_tag
         run: |
-          if [ "${{ env.LATEST_TAG }}" != "${{ env.REPO_BRANCH }}" ] && [ "$(printf '%s\n' "${{ env.LATEST_TAG }}" "${{ env.REPO_BRANCH }}" | sort -V | head -n1)" != "${{ env.LATEST_TAG }}" ]; then
-            echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
+          echo "LATEST_OPENCLASH_TAG=$(git ls-remote --tags --refs $OPENCLASH_URL |
+            grep -o 'refs/tags/[vV]*.*' |
+            sort -V |
+            tail -n1 |
+            sed 's/refs\/tags\///')" >> $GITHUB_ENV
+      - name: Compare OpenWRT Versions
+        id: compare_openwrt_versions
+        run: |
+          if [ "${{ env.LATEST_OPENWRT_TAG }}" != "${{ env.REPO_BRANCH }}" ] && [ "$(printf '%s\n' "${{ env.LATEST_OPENWRT_TAG }}" "${{ env.REPO_BRANCH }}" | sort -V | head -n1)" != "${{ env.LATEST_OPENWRT_TAG }}" ]; then
+            echo "OPENWRT_UPDATE_NEEDED=true" >> $GITHUB_ENV
           else
-            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
-            echo "::notice::📡Already the latest version: ${{ env.REPO_BRANCH }}"
+            echo "OPENWRT_UPDATE_NEEDED=false" >> $GITHUB_ENV
+            echo "::notice::📡 OpenWRT already at latest version: ${{ env.REPO_BRANCH }}"
           fi
-
-      - name: Update .repo file
-        if: env.UPDATE_NEEDED == 'true'
+      - name: Compare OpenClash Versions
+        id: compare_openclash_versions
         run: |
-          echo "::notice::📡New stable release version found: ${{ env.LATEST_TAG }}"
-          sed -i "s|^REPO_BRANCH=.*|REPO_BRANCH=${{ env.LATEST_TAG }}|" .repo
+          if [ "${{ env.LATEST_OPENCLASH_TAG }}" != "${{ env.OPENCLASH_BRANCH }}" ] && [ "$(printf '%s\n' "${{ env.LATEST_OPENCLASH_TAG }}" "${{ env.OPENCLASH_BRANCH }}" | sort -V | head -n1)" != "${{ env.LATEST_OPENCLASH_TAG }}" ]; then
+            echo "OPENCLASH_UPDATE_NEEDED=true" >> $GITHUB_ENV
+          else
+            echo "OPENCLASH_UPDATE_NEEDED=false" >> $GITHUB_ENV
+            echo "::notice::📡 OpenClash already at latest version: ${{ env.OPENCLASH_BRANCH }}"
+          fi
+      - name: Update .repo file
+        if: env.OPENWRT_UPDATE_NEEDED == 'true' || env.OPENCLASH_UPDATE_NEEDED == 'true'
+        run: |
+          if [ "${{ env.OPENWRT_UPDATE_NEEDED }}" == "true" ]; then
+            echo "::notice::📡 New OpenWRT stable release found: ${{ env.LATEST_OPENWRT_TAG }}"
+            sed -i "s|^REPO_BRANCH=.*|REPO_BRANCH=${{ env.LATEST_OPENWRT_TAG }}|" .repo
+          fi
+          
+          if [ "${{ env.OPENCLASH_UPDATE_NEEDED }}" == "true" ]; then
+            echo "::notice::📡 New OpenClash stable release found: ${{ env.LATEST_OPENCLASH_TAG }}"
+            sed -i "s|^OPENCLASH_BRANCH=.*|OPENCLASH_BRANCH=${{ env.LATEST_OPENCLASH_TAG }}|" .repo
+          fi
+          
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .repo
-          git commit -m "Update REPO_BRANCH to ${{ env.LATEST_TAG }}"
+          git commit -m "Update repository tags to latest versions"
           git push
-
       - name: Delete Expired Workflows
         uses: Mattraks/delete-workflow-runs@main
         with:
