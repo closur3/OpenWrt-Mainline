@@ -1,4 +1,4 @@
 REPO_URL=https://github.com/openwrt/openwrt
 REPO_BRANCH=v24.10.0
 OPENCLASH_URL=https://github.com/vernesong/OpenClash
-OPENCLASH_BRANCH=v0.0
+OPENCLASH_BRANCH=v0.46.075
