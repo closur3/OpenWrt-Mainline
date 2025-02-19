@@ -1,23 +1,29 @@
 name: Tags Checker
+
 defaults:
   run:
     shell: bash
+
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 1,13 * * *'
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@main
+      
       - name: Read .repo file
         id: repofile
         run: |
           while IFS='=' read -r key value; do
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
+      
       - name: Fetch Latest OpenWRT Tag
         id: fetch_latest_openwrt_tag
         run: |
@@ -27,6 +33,7 @@ jobs:
             sort -V |
             tail -n1 |
             sed 's/refs\/tags\///')" >> $GITHUB_ENV
+      
       - name: Fetch Latest OpenClash Tag
         id: fetch_latest_openclash_tag
         run: |
@@ -35,6 +42,7 @@ jobs:
             sort -V |
             tail -n1 |
             sed 's/refs\/tags\///')" >> $GITHUB_ENV
+      
       - name: Compare OpenWRT Versions
         id: compare_openwrt_versions
         run: |
@@ -44,6 +52,7 @@ jobs:
             echo "OPENWRT_UPDATE_NEEDED=false" >> $GITHUB_ENV
             echo "::notice::📡 OpenWRT already at latest version: ${{ env.REPO_BRANCH }}"
           fi
+      
       - name: Compare OpenClash Versions
         id: compare_openclash_versions
         run: |
@@ -53,6 +62,7 @@ jobs:
             echo "OPENCLASH_UPDATE_NEEDED=false" >> $GITHUB_ENV
             echo "::notice::📡 OpenClash already at latest version: ${{ env.OPENCLASH_BRANCH }}"
           fi
+      
       - name: Update .repo file
         if: env.OPENWRT_UPDATE_NEEDED == 'true' || env.OPENCLASH_UPDATE_NEEDED == 'true'
         run: |
@@ -71,6 +81,7 @@ jobs:
           git add .repo
           git commit -m "Update repository tags to latest versions"
           git push
+      
       - name: Delete Expired Workflows
         uses: Mattraks/delete-workflow-runs@main
         with:
