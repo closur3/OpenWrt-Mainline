@@ -50,7 +50,7 @@ jobs:
             echo "OPENWRT_UPDATE_NEEDED=true" >> $GITHUB_ENV
           else
             echo "OPENWRT_UPDATE_NEEDED=false" >> $GITHUB_ENV
-            echo "::notice::📡 OpenWRT already at latest version: ${{ env.REPO_BRANCH }}"
+            echo "::notice::📡 OpenWrt already at latest version: ${{ env.REPO_BRANCH }}"
           fi
       
       - name: Compare OpenClash Versions
