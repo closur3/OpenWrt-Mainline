@@ -16,15 +16,15 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@main
-      
+
       - name: Read .repo file
         id: repofile
         run: |
           while IFS='=' read -r key value; do
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
-      
-      - name: Fetch Latest OpenWRT Tag
+
+      - name: Fetch Latest OpenWrt Tag
         id: fetch_latest_openwrt_tag
         run: |
           echo "LATEST_OPENWRT_TAG=$(git ls-remote --tags --refs $REPO_URL |
@@ -43,7 +43,7 @@ jobs:
             tail -n1 |
             sed 's/refs\/tags\///')" >> $GITHUB_ENV
       
-      - name: Compare OpenWRT Versions
+      - name: Compare OpenWrt Versions
         id: compare_openwrt_versions
         run: |
           if [ "${{ env.LATEST_OPENWRT_TAG }}" != "${{ env.REPO_BRANCH }}" ] && [ "$(printf '%s\n' "${{ env.LATEST_OPENWRT_TAG }}" "${{ env.REPO_BRANCH }}" | sort -V | head -n1)" != "${{ env.LATEST_OPENWRT_TAG }}" ]; then
