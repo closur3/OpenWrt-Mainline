@@ -67,7 +67,7 @@ jobs:
         if: env.OPENWRT_UPDATE_NEEDED == 'true' || env.OPENCLASH_UPDATE_NEEDED == 'true'
         run: |
           if [ "${{ env.OPENWRT_UPDATE_NEEDED }}" == "true" ]; then
-            echo "::notice::📡 New OpenWRT stable release found: ${{ env.LATEST_OPENWRT_TAG }}"
+            echo "::notice::📡 New OpenWrt stable release found: ${{ env.LATEST_OPENWRT_TAG }}"
             sed -i "s|^REPO_BRANCH=.*|REPO_BRANCH=${{ env.LATEST_OPENWRT_TAG }}|" .repo
           fi
           
