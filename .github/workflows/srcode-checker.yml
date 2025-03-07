@@ -85,7 +85,7 @@ jobs:
             TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
             echo "::notice::🕘Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
 
-            if [ "$TIME_DIFF" -gt 30 ] || [ "${{ steps.cacheOpenWrtHash.outputs.cache-hit }}" != 'true' ] || [ "${{ steps.cacheOpenClashHash.outputs.cache-hit }}" != 'true' ]; then
+            if [ "${{ steps.cacheOpenWrtHash.outputs.cache-hit }}" != 'true' ] || [ "${{ steps.cacheOpenClashHash.outputs.cache-hit }}" != 'true' ]; then
               STATUS=stale
             elif [ "${{ github.event_name }}" == 'push' ]; then
               STATUS=push
