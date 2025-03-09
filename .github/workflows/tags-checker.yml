@@ -23,58 +23,87 @@ jobs:
           while IFS='=' read -r key value; do
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
-
-      - name: Fetch Latest OpenWrt Tag
-        id: fetch_latest_openwrt_tag
+          
+          # Identify all package URLs and branches from .repo file
+          grep -o '^[A-Z_]*_URL=' .repo | sed 's/_URL=//' > packages.txt
+          
+          # Create JSON array of packages for later processing
+          echo "PACKAGES=$(grep -o '^[A-Z_]*_URL=' .repo | sed 's/_URL=//' | jq -R . | jq -s .)" >> $GITHUB_ENV
+      
+      - name: Fetch Latest Tags for All Packages
+        id: fetch_latest_tags
         run: |
+          # Initialize update flag
+          echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+          
+          # Process OpenWrt main repo first
           echo "LATEST_OPENWRT_TAG=$(git ls-remote --tags --refs $REPO_URL |
             grep -v '\-rc\|-alpha\|-beta\|-preview' |
             grep -o 'refs/tags/[vV]*.*' |
             sort -V |
             tail -n1 |
             sed 's/refs\/tags\///')" >> $GITHUB_ENV
-      
-      - name: Fetch Latest OpenClash Tag
-        id: fetch_latest_openclash_tag
-        run: |
-          echo "LATEST_OPENCLASH_TAG=$(git ls-remote --tags --refs $OPENCLASH_URL |
-            grep -o 'refs/tags/[vV]*.*' |
-            sort -V |
-            tail -n1 |
-            sed 's/refs\/tags\///')" >> $GITHUB_ENV
-      
-      - name: Compare OpenWrt Versions
-        id: compare_openwrt_versions
-        run: |
-          if [ "${{ env.LATEST_OPENWRT_TAG }}" != "${{ env.REPO_BRANCH }}" ] && [ "$(printf '%s\n' "${{ env.LATEST_OPENWRT_TAG }}" "${{ env.REPO_BRANCH }}" | sort -V | head -n1)" != "${{ env.LATEST_OPENWRT_TAG }}" ]; then
+            
+          # Compare OpenWrt versions
+          if [ "${{ env.LATEST_OPENWRT_TAG }}" != "${{ env.REPO_BRANCH }}" ] && 
+             [ "$(printf '%s\n' "${{ env.LATEST_OPENWRT_TAG }}" "${{ env.REPO_BRANCH }}" | sort -V | head -n1)" != "${{ env.LATEST_OPENWRT_TAG }}" ]; then
             echo "OPENWRT_UPDATE_NEEDED=true" >> $GITHUB_ENV
+            echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
+            echo "::notice::📡 New OpenWrt stable release found: ${{ env.LATEST_OPENWRT_TAG }}"
           else
             echo "OPENWRT_UPDATE_NEEDED=false" >> $GITHUB_ENV
             echo "::notice::📡 OpenWrt already at latest version: ${{ env.REPO_BRANCH }}"
           fi
-      
-      - name: Compare OpenClash Versions
-        id: compare_openclash_versions
-        run: |
-          if [ "${{ env.LATEST_OPENCLASH_TAG }}" != "${{ env.OPENCLASH_BRANCH }}" ] && [ "$(printf '%s\n' "${{ env.LATEST_OPENCLASH_TAG }}" "${{ env.OPENCLASH_BRANCH }}" | sort -V | head -n1)" != "${{ env.LATEST_OPENCLASH_TAG }}" ]; then
-            echo "OPENCLASH_UPDATE_NEEDED=true" >> $GITHUB_ENV
-          else
-            echo "OPENCLASH_UPDATE_NEEDED=false" >> $GITHUB_ENV
-            echo "::notice::📡 OpenClash already at latest version: ${{ env.OPENCLASH_BRANCH }}"
-          fi
+          
+          # Process all other packages in .repo file
+          for pkg in $(cat packages.txt); do
+            if [ "$pkg" != "REPO" ]; then  # Skip OpenWrt main repo
+              # Get URL and branch variables for this package
+              pkg_url="${pkg}_URL"
+              pkg_branch="${pkg}_BRANCH"
+              
+              # Fetch latest tag
+              latest_tag=$(git ls-remote --tags --refs ${!pkg_url} |
+                grep -o 'refs/tags/[vV]*.*' |
+                sort -V |
+                tail -n1 |
+                sed 's/refs\/tags\///')
+              
+              # Save as environment variable
+              echo "LATEST_${pkg}_TAG=$latest_tag" >> $GITHUB_ENV
+              
+              # Compare versions
+              if [ "$latest_tag" != "${!pkg_branch}" ] && 
+                 [ "$(printf '%s\n' "$latest_tag" "${!pkg_branch}" | sort -V | head -n1)" != "$latest_tag" ]; then
+                echo "${pkg}_UPDATE_NEEDED=true" >> $GITHUB_ENV
+                echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
+                echo "::notice::📡 New $pkg stable release found: $latest_tag"
+              else
+                echo "${pkg}_UPDATE_NEEDED=false" >> $GITHUB_ENV
+                echo "::notice::📡 $pkg already at latest version: ${!pkg_branch}"
+              fi
+            fi
+          done
       
       - name: Update .repo file
-        if: env.OPENWRT_UPDATE_NEEDED == 'true' || env.OPENCLASH_UPDATE_NEEDED == 'true'
+        if: env.UPDATE_NEEDED == 'true'
         run: |
+          # Update OpenWrt version if needed
           if [ "${{ env.OPENWRT_UPDATE_NEEDED }}" == "true" ]; then
-            echo "::notice::📡 New OpenWrt stable release found: ${{ env.LATEST_OPENWRT_TAG }}"
             sed -i "s|^REPO_BRANCH=.*|REPO_BRANCH=${{ env.LATEST_OPENWRT_TAG }}|" .repo
           fi
           
-          if [ "${{ env.OPENCLASH_UPDATE_NEEDED }}" == "true" ]; then
-            echo "::notice::📡 New OpenClash stable release found: ${{ env.LATEST_OPENCLASH_TAG }}"
-            sed -i "s|^OPENCLASH_BRANCH=.*|OPENCLASH_BRANCH=${{ env.LATEST_OPENCLASH_TAG }}|" .repo
-          fi
+          # Update all other packages if needed
+          for pkg in $(cat packages.txt); do
+            if [ "$pkg" != "REPO" ]; then  # Skip OpenWrt main repo
+              pkg_update_needed="${pkg}_UPDATE_NEEDED"
+              latest_tag="LATEST_${pkg}_TAG"
+              
+              if [ "${!pkg_update_needed}" == "true" ]; then
+                sed -i "s|^${pkg}_BRANCH=.*|${pkg}_BRANCH=${!latest_tag}|" .repo
+              fi
+            fi
+          done
           
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
