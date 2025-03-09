@@ -23,38 +23,89 @@ jobs:
           while IFS='=' read -r key value; do
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
+          
+          # Identify all package URLs and branches from .repo file
+          grep -o '^[A-Z_]*_URL=' .repo | sed 's/_URL=//' > packages.txt
 
-      - name: Get OpenWrt Commit Hash
-        id: getOpenWrtHash
+      - name: Get Commit Hashes
+        id: get_commit_hashes
         run: |
+          # First clone OpenWrt main repo
           git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} OpenWrt
           echo "OpenWrtCommitHash=$(git -C OpenWrt rev-parse HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Get OpenClash Commit Hash
-        id: getOpenClashHash
-        run: |
-          git clone --depth 1 ${{ env.OPENCLASH_URL }} -b ${{ env.OPENCLASH_BRANCH }} OpenClash
-          echo "OpenClashCommitHash=$(git -C OpenClash rev-parse HEAD)" >> $GITHUB_OUTPUT
+          
+          # Clone all other packages and get their commit hashes
+          for pkg in $(cat packages.txt); do
+            if [ "$pkg" != "REPO" ]; then  # Skip OpenWrt main repo
+              # Get URL and branch variables for this package
+              pkg_url="${pkg}_URL"
+              pkg_branch="${pkg}_BRANCH"
+              
+              # Clone the repository
+              git clone --depth 1 ${!pkg_url} -b ${!pkg_branch} ${pkg}
+              
+              # Get and save commit hash
+              commit_hash=$(git -C ${pkg} rev-parse HEAD)
+              echo "${pkg}CommitHash=$commit_hash" >> $GITHUB_OUTPUT
+              echo "::notice::📦 $pkg commit hash: $commit_hash"
+            fi
+          done
 
       - name: Compare OpenWrt Commit Hash
         id: cacheOpenWrtHash
         uses: actions/cache@main
         with:
           path: .OpenWrtCommitHash
-          key: OPENWRT-HEAD-${{ steps.getOpenWrtHash.outputs.OpenWrtCommitHash }}
+          key: OPENWRT-HEAD-${{ steps.get_commit_hashes.outputs.OpenWrtCommitHash }}
 
-      - name: Compare OpenClash Commit Hash
-        id: cacheOpenClashHash
-        uses: actions/cache@main
-        with:
-          path: .OpenClashCommitHash
-          key: OPENCLASH-HEAD-${{ steps.getOpenClashHash.outputs.OpenClashCommitHash }}
+      - name: Compare Package Commit Hashes
+        id: cache_package_hashes
+        run: |
+          CACHE_HIT=true
+          
+          # Check cache for all packages
+          for pkg in $(cat packages.txt); do
+            if [ "$pkg" != "REPO" ]; then  # Skip OpenWrt main repo
+              hash_var="${pkg}CommitHash"
+              hash_value="${!hash_var}"
+              
+              # Use actions/cache to check if commit hash has changed
+              cache_result=$(GITHUB_PATH= GITHUB_ACTION= GITHUB_ENV= github_output=$(mktemp) && echo "GITHUB_OUTPUT=$github_output" >> $GITHUB_ENV && \
+                             actions/cache/restore@v3 \
+                             --path ".${pkg}CommitHash" \
+                             --key "${pkg}-HEAD-${hash_value}" 2>&1 | grep "Cache hit for" || echo "Cache miss")
+              
+              if [[ "$cache_result" != *"Cache hit for"* ]]; then
+                CACHE_HIT=false
+                echo "::notice::🔄 $pkg has changed"
+              else
+                echo "::notice::✅ No changes in $pkg"
+              fi
+            fi
+          done
+          
+          # Set environment variable for overall cache hit status
+          echo "PACKAGES_CACHE_HIT=$CACHE_HIT" >> $GITHUB_ENV
 
       - name: Save New Commit Hashes
-        if: steps.cacheOpenWrtHash.outputs.cache-hit != 'true' || steps.cacheOpenClashHash.outputs.cache-hit != 'true'
+        if: steps.cacheOpenWrtHash.outputs.cache-hit != 'true' || env.PACKAGES_CACHE_HIT != 'true'
         run: |
-          echo ${{ steps.getOpenWrtHash.outputs.OpenWrtCommitHash }} | tee .OpenWrtCommitHash
-          echo ${{ steps.getOpenClashHash.outputs.OpenClashCommitHash }} | tee .OpenClashCommitHash
+          echo ${{ steps.get_commit_hashes.outputs.OpenWrtCommitHash }} | tee .OpenWrtCommitHash
+          
+          # Save hashes for all packages
+          for pkg in $(cat packages.txt); do
+            if [ "$pkg" != "REPO" ]; then  # Skip OpenWrt main repo
+              hash_var="${pkg}CommitHash"
+              hash_value="${!hash_var}"
+              echo "${hash_value}" | tee ".${pkg}CommitHash"
+              
+              # Set up cache for the package
+              GITHUB_PATH= GITHUB_ACTION= GITHUB_ENV= github_output=$(mktemp) && echo "GITHUB_OUTPUT=$github_output" >> $GITHUB_ENV && \
+              actions/cache/save@v3 \
+              --path ".${pkg}CommitHash" \
+              --key "${pkg}-HEAD-${hash_value}"
+            fi
+          done
 
       - name: Check OpenWrt Builder Status
         id: check_builder_status
@@ -85,7 +136,7 @@ jobs:
             TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
             echo "::notice::🕘Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
 
-            if [ "${{ steps.cacheOpenWrtHash.outputs.cache-hit }}" != 'true' ] || [ "${{ steps.cacheOpenClashHash.outputs.cache-hit }}" != 'true' ]; then
+            if [ "${{ steps.cacheOpenWrtHash.outputs.cache-hit }}" != 'true' ] || [ "${{ env.PACKAGES_CACHE_HIT }}" != 'true' ]; then
               STATUS=stale
             elif [ "${{ github.event_name }}" == 'push' ]; then
               STATUS=push
