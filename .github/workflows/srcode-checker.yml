@@ -30,6 +30,7 @@ jobs:
         id: get_commit_hashes
         run: |
           echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
+          echo "CACHE_KEY=" >> $GITHUB_ENV
           
           for pkg in $(cat packages.txt); do
             pkg_url="${pkg}_URL"
@@ -40,26 +41,18 @@ jobs:
             commit_hash=$(git -C temp_${pkg} rev-parse HEAD)
             echo "${pkg}CommitHash=$commit_hash" >> $GITHUB_OUTPUT
             
-            cache_step_var="cache${pkg}Hash"
-            echo "$cache_step_var=$commit_hash" >> $GITHUB_ENV
+            pkg_cache_key="${pkg}-HEAD-${commit_hash}"
+            if [ -z "$CACHE_KEY" ]; then
+              CACHE_KEY="$pkg_cache_key"
+            else
+              CACHE_KEY="$CACHE_KEY-$pkg_cache_key"
+            fi
+            
+            echo "$pkg=$commit_hash" >> commit_hashes.txt
           done
-
-      - name: Compare Commit Hashes
-        id: compare_hashes
-        run: |
-          for pkg in $(cat packages.txt); do
-            cache_step_var="cache${pkg}Hash"
-            commit_hash="${!cache_step_var}"
-            
-            cache_step_id="cache${pkg}Hash"
-            echo "::group::Checking ${pkg}"
-            
-            hash_cache_id="${pkg}-HEAD-${commit_hash}"
-            echo "Hash cache ID: $hash_cache_id"
-            
-            echo "${pkg}CacheKey=${hash_cache_id}" >> $GITHUB_OUTPUT
-            echo "::endgroup::"
-          done
+          
+          echo "CACHE_KEY=$CACHE_KEY" >> $GITHUB_ENV
+          cat commit_hashes.txt
 
       - name: Cache Commit Hashes
         uses: actions/cache@main
@@ -67,10 +60,7 @@ jobs:
         with:
           path: |
             .commit-hashes/
-          key: ${{ steps.compare_hashes.outputs.OpenWrtCacheKey }}-${{ steps.compare_hashes.outputs.OpenClashCacheKey }}
-          restore-keys: |
-            ${{ steps.compare_hashes.outputs.OpenWrtCacheKey }}-
-            ${{ steps.compare_hashes.outputs.OpenClashCacheKey }}-
+          key: ${{ env.CACHE_KEY }}
 
       - name: Save New Commit Hashes
         if: steps.cache_commits.outputs.cache-hit != 'true'
@@ -78,23 +68,17 @@ jobs:
           mkdir -p .commit-hashes
           echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
           
-          for pkg in $(cat packages.txt); do
-            cache_step_var="cache${pkg}Hash"
-            commit_hash="${!cache_step_var}"
-            
+          while IFS='=' read -r pkg commit_hash; do
             echo "$commit_hash" > .commit-hashes/.${pkg}CommitHash
             echo "::notice::🔄 $pkg has changed or first check: $commit_hash"
-          done
+          done < commit_hashes.txt
 
       - name: No Changes Detected
         if: steps.cache_commits.outputs.cache-hit == 'true'
         run: |
-          for pkg in $(cat packages.txt); do
-            cache_step_var="cache${pkg}Hash"
-            commit_hash="${!cache_step_var}"
-            
+          while IFS='=' read -r pkg commit_hash; do
             echo "::notice::✅ No changes in $pkg: $commit_hash"
-          done
+          done < commit_hashes.txt
 
       - name: Check OpenWrt Builder Status
         id: check_builder_status
