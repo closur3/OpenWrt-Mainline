@@ -25,9 +25,5 @@ find ./ | grep Makefile | grep v2ray-geodata | xargs rm -f
 git clone https://github.com/sbwml/luci-app-mosdns package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
-# OPENCLASH
-find ./ | grep Makefile | grep openclash | xargs rm -f
-git clone https://github.com/vernesong/OpenClash package/openclash
-
 # BUILTDATE
 sed -i "s/\(OPENWRT_RELEASE=\".*\)\"/\1 built-$(date +%y.%m.%d)\"/" package/base-files/files/usr/lib/os-release
