@@ -1,0 +1,30 @@
+name: Zero Runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      cleanup_releases:
+        description: 'Cleanup Releases'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Cleanup Workflows
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 0
+          keep_minimum_runs: 0
+        
+      - name: Cleanup Releases
+        if: github.event.inputs.cleanup_releases == 'true'
+        uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 0
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

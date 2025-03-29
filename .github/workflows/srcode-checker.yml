@@ -1,0 +1,144 @@
+name: Srcode Checker
+
+on:
+  push:
+    paths:
+      - '.config'
+      - 'files/**'
+      - '*.sh'
+  schedule:
+    - cron: '30 1,13 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Read .repo file
+        id: repofile
+        run: |
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> $GITHUB_ENV
+          done < .repo
+          
+          grep -o '^[A-Z_]*_URL=' .repo | sed 's/_URL=//' > packages.txt
+
+      - name: Get Commit Hashes
+        id: get_commit_hashes
+        run: |
+          echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
+          echo "CACHE_KEY=" >> $GITHUB_ENV
+          
+          for pkg in $(cat packages.txt); do
+            pkg_url="${pkg}_URL"
+            pkg_branch="${pkg}_BRANCH"
+            
+            git clone --depth 1 ${!pkg_url} -b ${!pkg_branch} temp_${pkg}
+            
+            commit_hash=$(git -C temp_${pkg} rev-parse HEAD)
+            echo "${pkg}CommitHash=$commit_hash" >> $GITHUB_OUTPUT
+            
+            pkg_cache_key="${pkg}-HEAD-${commit_hash}"
+            if [ -z "$CACHE_KEY" ]; then
+              CACHE_KEY="$pkg_cache_key"
+            else
+              CACHE_KEY="$CACHE_KEY-$pkg_cache_key"
+            fi
+            
+            echo "$pkg=$commit_hash" >> commit_hashes.txt
+          done
+          
+          echo "CACHE_KEY=$CACHE_KEY" >> $GITHUB_ENV
+          cat commit_hashes.txt
+
+      - name: Cache Commit Hashes
+        uses: actions/cache@main
+        id: cache_commits
+        with:
+          path: |
+            .commit-hashes/
+          key: ${{ env.CACHE_KEY }}
+
+      - name: Save New Commit Hashes
+        if: steps.cache_commits.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .commit-hashes
+          echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
+          
+          while IFS='=' read -r pkg commit_hash; do
+            echo "$commit_hash" > .commit-hashes/.${pkg}CommitHash
+            echo "::notice::🔄 $pkg has changed or first check: $commit_hash"
+          done < commit_hashes.txt
+
+      - name: No Changes Detected
+        if: steps.cache_commits.outputs.cache-hit == 'true'
+        run: |
+          while IFS='=' read -r pkg commit_hash; do
+            echo "::notice::✅ No changes in $pkg: $commit_hash"
+          done < commit_hashes.txt
+
+      - name: Check OpenWrt Builder Status
+        id: check_builder_status
+        run: |
+          WORKFLOW_NAME="OpenWrt Builder"
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          
+          WORKFLOW_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/$OWNER/$REPO/actions/workflows" | \
+          jq -r --arg NAME "$WORKFLOW_NAME" '.workflows[] | select(.name == $NAME) | .id')
+
+          if [ -z "$WORKFLOW_ID" ]; then
+            echo "Workflow not found"
+            exit 1
+          fi
+
+          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/$OWNER/$REPO/actions/workflows/$WORKFLOW_ID/runs?status=completed&per_page=1")
+
+          STATUS=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].conclusion')
+          LAST_RUN_TIME=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].updated_at')
+
+          if [ "$LAST_RUN_TIME" == 'null' ]; then
+            TIME_DIFF=0
+            echo "::notice::🕘 Last build: null"
+          else
+            TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
+            echo "::notice::🕘 Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
+
+            if [ "${{ env.CHANGES_DETECTED }}" == "true" ]; then
+              STATUS=stale
+              echo "::notice::🔄 Source code changes detected"
+            elif [ "${{ github.event_name }}" == 'push' ]; then
+              STATUS=push
+              echo "::notice::📤 Push event triggered"
+            fi
+          fi
+
+          echo "BUILDER_STATUS=$STATUS" >> $GITHUB_ENV
+          echo "::notice::🕒 Time diff: $TIME_DIFF days"
+          echo "::notice::🖥️ Status: $STATUS"
+
+      - name: Trigger Build
+        if: env.BUILDER_STATUS != 'success'
+        uses: peter-evans/repository-dispatch@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: Source Code Updater
+
+      - name: Delete Expired Workflows
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 0
+          keep_minimum_runs: 0
+          delete_workflow_pattern: srcode-checker.yml
+
+      - name: Delete Zero runs
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 0
+          keep_minimum_runs: 0
+          delete_workflow_pattern: zero-runs.yml

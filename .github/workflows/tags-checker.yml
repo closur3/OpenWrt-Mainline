@@ -1,0 +1,90 @@
+name: Tags Checker
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 1,13 * * *'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@main
+
+      - name: Read .repo file
+        id: repofile
+        run: |
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> $GITHUB_ENV
+          done < .repo
+          
+          grep -o '^[A-Z_]*_URL=' .repo | sed 's/_URL=//' > packages.txt
+      
+      - name: Fetch Latest Tags for All Packages
+        id: fetch_latest_tags
+        run: |
+          echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+          
+          for pkg in $(cat packages.txt); do
+            pkg_url="${pkg}_URL"
+            pkg_branch="${pkg}_BRANCH"
+            
+            if [ "$pkg" = "OPENWRT" ]; then
+              latest_tag=$(git ls-remote --tags --refs ${!pkg_url} |
+                grep -v '\-rc\|-alpha\|-beta\|-preview' |
+                grep -o 'refs/tags/[vV]*.*' |
+                sort -V |
+                tail -n1 |
+                sed 's/refs\/tags\///')
+            else
+              latest_tag=$(git ls-remote --tags --refs ${!pkg_url} |
+                grep -o 'refs/tags/[vV]*.*' |
+                sort -V |
+                tail -n1 |
+                sed 's/refs\/tags\///')
+            fi
+            
+            echo "LATEST_${pkg}_TAG=$latest_tag" >> $GITHUB_ENV
+            
+            if [ "$latest_tag" != "${!pkg_branch}" ] && 
+               [ "$(printf '%s\n' "$latest_tag" "${!pkg_branch}" | sort -V | head -n1)" != "$latest_tag" ]; then
+              echo "${pkg}_UPDATE_NEEDED=true" >> $GITHUB_ENV
+              echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
+              echo "::notice::📡 New $pkg stable release found: $latest_tag"
+            else
+              echo "${pkg}_UPDATE_NEEDED=false" >> $GITHUB_ENV
+              echo "::notice::📡 $pkg already at latest version: ${!pkg_branch}"
+            fi
+          done
+      
+      - name: Update .repo file
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          for pkg in $(cat packages.txt); do
+            pkg_update_needed="${pkg}_UPDATE_NEEDED"
+            latest_tag="LATEST_${pkg}_TAG"
+            
+            if [ "${!pkg_update_needed}" == "true" ]; then
+              sed -i "s|^${pkg}_BRANCH=.*|${pkg}_BRANCH=${!latest_tag}|" .repo
+              echo "::notice::✏️ Updated $pkg to ${!latest_tag}"
+            fi
+          done
+          
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .repo
+          git commit -m "Update repository tags to latest versions"
+          git push
+      
+      - name: Delete Expired Workflows
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 0
+          keep_minimum_runs: 0
+          delete_workflow_pattern: tags-checker.yml
