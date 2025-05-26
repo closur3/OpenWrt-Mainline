@@ -1,6 +1,6 @@
 OPENWRT_URL=https://github.com/openwrt/openwrt
 OPENWRT_BRANCH=v24.10.1
 OPENCLASH_URL=https://github.com/vernesong/OpenClash
-OPENCLASH_BRANCH=v0.46.079
+OPENCLASH_BRANCH=v0.46.086
 MOSDNS_URL=https://github.com/sbwml/luci-app-mosdns
 MOSDNS_BRANCH=v5.3.3-r4
