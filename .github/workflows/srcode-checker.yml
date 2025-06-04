@@ -24,7 +24,7 @@ jobs:
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
           
-          grep -o '^[A-Z_]*_URL=' .repo | sed 's/_URL=//' > packages.txt
+          grep -o '^[^=]*_URL=' .repo | sed 's/_URL=//' > packages.txt
 
       - name: Get Commit Hashes
         id: get_commit_hashes
@@ -34,9 +34,9 @@ jobs:
           
           for pkg in $(cat packages.txt); do
             pkg_url="${pkg}_URL"
-            pkg_branch="${pkg}_BRANCH"
+            pkg_tag="${pkg}_TAG"
             
-            git clone --depth 1 ${!pkg_url} -b ${!pkg_branch} temp_${pkg}
+            git clone --depth 1 ${!pkg_url} -b ${!pkg_tag} temp_${pkg}
             
             commit_hash=$(git -C temp_${pkg} rev-parse HEAD)
             echo "${pkg}CommitHash=$commit_hash" >> $GITHUB_OUTPUT
