@@ -66,6 +66,8 @@ jobs:
       - name: Update .repo file
         if: env.UPDATE_NEEDED == 'true'
         run: |
+          COMMIT_DETAILS=""
+          
           for pkg in $(cat packages.txt); do
             pkg_update_needed="${pkg}_UPDATE_NEEDED"
             latest_tag="LATEST_${pkg}_TAG"
@@ -73,13 +75,19 @@ jobs:
             if [ "${!pkg_update_needed}" == "true" ]; then
               sed -i "s|^${pkg}_BRANCH=.*|${pkg}_BRANCH=${!latest_tag}|" .repo
               echo "::notice::✏️ Updated $pkg to ${!latest_tag}"
+              
+              if [ -z "$COMMIT_DETAILS" ]; then
+                COMMIT_DETAILS="${pkg} to ${!latest_tag}"
+              else
+                COMMIT_DETAILS="${COMMIT_DETAILS}, ${pkg} to ${!latest_tag}"
+              fi
             fi
           done
           
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .repo
-          git commit -m "Update repository tags to latest versions"
+          git commit -m "Update ${COMMIT_DETAILS}"
           git push
       
       - name: Delete Expired Workflows
