@@ -70,14 +70,7 @@ jobs:
           
           while IFS='=' read -r pkg commit_hash; do
             echo "$commit_hash" > .commit-hashes/.${pkg}CommitHash
-            echo "::notice::🔄 $pkg has changed or first check: $commit_hash"
-          done < commit_hashes.txt
-
-      - name: No Changes Detected
-        if: steps.cache_commits.outputs.cache-hit == 'true'
-        run: |
-          while IFS='=' read -r pkg commit_hash; do
-            echo "::notice::✅ No changes in $pkg: $commit_hash"
+            echo "::notice::🔄 $pkg has changed: $commit_hash"
           done < commit_hashes.txt
 
       - name: Check OpenWrt Builder Status
@@ -111,7 +104,6 @@ jobs:
 
             if [ "${{ env.CHANGES_DETECTED }}" == "true" ]; then
               STATUS=stale
-              echo "::notice::🔄 Source code changes detected"
             elif [ "${{ github.event_name }}" == 'push' ]; then
               STATUS=push
               echo "::notice::📤 Push event triggered"
