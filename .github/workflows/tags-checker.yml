@@ -24,7 +24,7 @@ jobs:
             echo "$key=$value" >> $GITHUB_ENV
           done < .repo
           
-          grep -o '^[A-Z_]*_URL=' .repo | sed 's/_URL=//' > packages.txt
+          grep -o '^[^=]*_URL=' .repo | sed 's/_URL=//' > packages.txt
       
       - name: Fetch Latest Tags for All Packages
         id: fetch_latest_tags
@@ -33,9 +33,9 @@ jobs:
           
           for pkg in $(cat packages.txt); do
             pkg_url="${pkg}_URL"
-            pkg_branch="${pkg}_BRANCH"
+            pkg_tag="${pkg}_TAG"
             
-            if [ "$pkg" = "OPENWRT" ]; then
+            if [ "$pkg" = "OpenWrt" ]; then
               latest_tag=$(git ls-remote --tags --refs ${!pkg_url} |
                 grep -v '\-rc\|-alpha\|-beta\|-preview' |
                 grep -o 'refs/tags/[vV]*.*' |
@@ -52,14 +52,13 @@ jobs:
             
             echo "LATEST_${pkg}_TAG=$latest_tag" >> $GITHUB_ENV
             
-            if [ "$latest_tag" != "${!pkg_branch}" ] && 
-               [ "$(printf '%s\n' "$latest_tag" "${!pkg_branch}" | sort -V | head -n1)" != "$latest_tag" ]; then
+            if [ "$latest_tag" != "${!pkg_tag}" ] && 
+               [ "$(printf '%s\n' "$latest_tag" "${!pkg_tag}" | sort -V | head -n1)" != "$latest_tag" ]; then
               echo "${pkg}_UPDATE_NEEDED=true" >> $GITHUB_ENV
               echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
-              echo "::notice::📡 New $pkg stable release found: $latest_tag"
             else
               echo "${pkg}_UPDATE_NEEDED=false" >> $GITHUB_ENV
-              echo "::notice::📡 $pkg already at latest version: ${!pkg_branch}"
+              echo "::notice::📡 $pkg already the latest version: ${!pkg_tag}"
             fi
           done
       
@@ -73,8 +72,8 @@ jobs:
             latest_tag="LATEST_${pkg}_TAG"
             
             if [ "${!pkg_update_needed}" == "true" ]; then
-              sed -i "s|^${pkg}_BRANCH=.*|${pkg}_BRANCH=${!latest_tag}|" .repo
-              echo "::notice::✏️ Updated $pkg to ${!latest_tag}"
+              sed -i "s|^${pkg}_TAG=.*|${pkg}_TAG=${!latest_tag}|" .repo
+              echo "::notice::✏️ $pkg Update to ${!latest_tag}"
               
               if [ -z "$COMMIT_DETAILS" ]; then
                 COMMIT_DETAILS="${pkg} to ${!latest_tag}"
