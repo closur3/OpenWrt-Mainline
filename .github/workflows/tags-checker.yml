@@ -58,7 +58,7 @@ jobs:
               echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
             else
               echo "${pkg}_UPDATE_NEEDED=false" >> $GITHUB_ENV
-              echo "::notice::📡 $pkg on latest: ${!pkg_tag}"
+              echo "::notice::✅ $pkg is up to date: ${!pkg_tag}"
             fi
           done
       
@@ -73,7 +73,7 @@ jobs:
             
             if [ "${!pkg_update_needed}" == "true" ]; then
               sed -i "s|^${pkg}_TAG=.*|${pkg}_TAG=${!latest_tag}|" .repo
-              echo "::notice::✏️ $pkg update to ${!latest_tag}"
+              echo "::notice::⬆️ $pkg update to ${!latest_tag}"
               
               if [ -z "$COMMIT_DETAILS" ]; then
                 COMMIT_DETAILS="${pkg} to ${!latest_tag}"
