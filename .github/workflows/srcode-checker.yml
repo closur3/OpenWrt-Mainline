@@ -29,9 +29,6 @@ jobs:
       - name: Get Commit Hashes
         id: get_commit_hashes
         run: |
-          echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
-          echo "CACHE_KEY=" >> $GITHUB_ENV
-          
           for pkg in $(cat packages.txt); do
             pkg_url="${pkg}_URL"
             pkg_tag="${pkg}_TAG"
@@ -41,37 +38,70 @@ jobs:
             commit_hash=$(git -C temp_${pkg} rev-parse HEAD)
             echo "${pkg}CommitHash=$commit_hash" >> $GITHUB_OUTPUT
             
-            pkg_cache_key="${pkg}-HEAD-${commit_hash}"
-            if [ -z "$CACHE_KEY" ]; then
-              CACHE_KEY="$pkg_cache_key"
-            else
-              CACHE_KEY="$CACHE_KEY-$pkg_cache_key"
-            fi
-            
             echo "$pkg=$commit_hash" >> commit_hashes.txt
           done
-          
+
+          CACHE_KEY=""
+          first_pkg=$(head -1 commit_hashes.txt | cut -d'=' -f1)
+          while IFS='=' read -r pkg commit_hash; do
+            if [ -z "$CACHE_KEY" ]; then
+              CACHE_KEY="${pkg}-${commit_hash:0:8}"
+            else
+              CACHE_KEY="$CACHE_KEY/${pkg}-${commit_hash:0:8}"
+            fi
+          done < commit_hashes.txt
           echo "CACHE_KEY=$CACHE_KEY" >> $GITHUB_ENV
+          echo "FIRST_PKG=$first_pkg" >> $GITHUB_ENV
+          
           cat commit_hashes.txt
 
-      - name: Cache Commit Hashes
-        uses: actions/cache@main
-        id: cache_commits
+      - name: Restore Previous Commit Hashes
+        uses: actions/cache/restore@main
+        id: cache_previous
         with:
           path: |
             .commit-hashes/
           key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            ${{ env.FIRST_PKG }}-
 
-      - name: Save New Commit Hashes
-        if: steps.cache_commits.outputs.cache-hit != 'true'
+      - name: Compare and Save New Commit Hashes
         run: |
           mkdir -p .commit-hashes
-          echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
+          changes_detected=false
           
           while IFS='=' read -r pkg commit_hash; do
-            echo "$commit_hash" > .commit-hashes/.${pkg}CommitHash
-            echo "::notice::🔄 $pkg has changed: $commit_hash"
+            hash_file=".commit-hashes/.${pkg}CommitHash"
+            
+            if [ -f "$hash_file" ]; then
+              old_commit=$(cat "$hash_file")
+              if [ "$old_commit" != "$commit_hash" ]; then
+                echo "::notice::🔄 $pkg changed: $old_commit -> $commit_hash"
+                changes_detected=true
+              else
+                echo "::notice::✅ $pkg unchanged: $commit_hash"
+              fi
+            else
+              echo "::notice::✨ $pkg added: $commit_hash"
+              changes_detected=true
+            fi
+            
+            echo "$commit_hash" > "$hash_file"
           done < commit_hashes.txt
+          
+          if [ "$changes_detected" = true ]; then
+            echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
+          else
+            echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Save New Commit Hashes Cache
+        if: env.CHANGES_DETECTED == 'true'
+        uses: actions/cache/save@main
+        with:
+          path: |
+            .commit-hashes/
+          key: ${{ env.CACHE_KEY }}
 
       - name: Check OpenWrt Builder Status
         id: check_builder_status
@@ -125,7 +155,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0
-          keep_minimum_runs: 0
+          keep_minimum_runs: 5
           delete_workflow_pattern: srcode-checker.yml
 
       - name: Delete Zero runs
