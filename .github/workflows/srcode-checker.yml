@@ -79,7 +79,7 @@ jobs:
                 echo "::notice::🔄 $pkg: changed -> $commit_hash"
                 changes_detected=true
               else
-                echo "::notice::✅ $pkg: unchanged -> $commit_hash"
+                echo "::notice::✅ $pkg: current -> $commit_hash"
               fi
             else
               echo "::notice::✨ $pkg: added -> $commit_hash"
