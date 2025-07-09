@@ -76,13 +76,13 @@ jobs:
             if [ -f "$hash_file" ]; then
               old_commit=$(cat "$hash_file")
               if [ "$old_commit" != "$commit_hash" ]; then
-                echo "::notice::🔄 $pkg changed: $old_commit -> $commit_hash"
+                echo "::notice::🔄 $pkg: changed -> $commit_hash"
                 changes_detected=true
               else
-                echo "::notice::✅ $pkg unchanged: $commit_hash"
+                echo "::notice::✅ $pkg: unchanged -> $commit_hash"
               fi
             else
-              echo "::notice::✨ $pkg added: $commit_hash"
+              echo "::notice::✨ $pkg: added -> $commit_hash"
               changes_detected=true
             fi
             
