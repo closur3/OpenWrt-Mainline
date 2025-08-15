@@ -149,7 +149,7 @@ jobs:
         uses: peter-evans/repository-dispatch@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: Source Code Updater
+          event-type: OpenWrt Builder
 
       - name: Delete Expired Workflows
         uses: Mattraks/delete-workflow-runs@main

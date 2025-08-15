@@ -2,7 +2,7 @@ name: OpenWrt Builder
 
 on:
   repository_dispatch:
-    types: [Source Code Updater]
+    types: [OpenWrt Builder]
   workflow_dispatch:
     inputs:
       ssh:
