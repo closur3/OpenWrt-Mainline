@@ -4,5 +4,3 @@ OpenClash_URL=https://github.com/vernesong/OpenClash
 OpenClash_TAG=v0.46.137
 MosDNS_URL=https://github.com/sbwml/luci-app-mosdns
 MosDNS_TAG=v5.3.3-r5
-Argon_URL=https://github.com/jerrykuku/luci-theme-argon
-Argon_TAG=v2.4.3
