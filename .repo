@@ -1,5 +1,5 @@
 OpenWrt_URL=https://github.com/openwrt/openwrt
-OpenWrt_TAG=v24.10.2
+OpenWrt_TAG=v24.10.3
 OpenClash_URL=https://github.com/vernesong/OpenClash
 OpenClash_TAG=v0.47.006
 MosDNS_URL=https://github.com/sbwml/luci-app-mosdns
