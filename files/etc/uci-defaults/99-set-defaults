@@ -1,0 +1,17 @@
+#!/bin/sh
+
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci commit system
+
+uci set luci.diag.dns='www.qq.com'
+uci set luci.diag.ping='www.qq.com'
+uci set luci.diag.route='www.qq.com'
+uci commit luci
+
+uci set dhcp.@dnsmasq[0].cachesize='0'
+uci set dhcp.@dnsmasq[0].min_cache_ttl='0'
+uci set dhcp.@dnsmasq[0].noresolv='1'
+
+uci set dhcp.lan.ignore='1'
+uci commit dhcp
