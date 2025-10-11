@@ -14,4 +14,11 @@ uci set dhcp.@dnsmasq[0].min_cache_ttl='0'
 uci set dhcp.@dnsmasq[0].noresolv='1'
 
 uci set dhcp.lan.ignore='1'
+
+uci -q del dhcp.wan
+uci -q del dhcp.lan.ra
+uci -q del dhcp.lan.ra_slaac
+uci -q del dhcp.lan.ra_flags
+uci -q del dhcp.lan.dhcpv6
+uci -q del dhcp.lan.ndp
 uci commit dhcp
