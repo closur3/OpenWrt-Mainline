@@ -21,7 +21,8 @@ jobs:
         id: repofile
         run: |
           while IFS='=' read -r key value; do
-            echo "$key=$value" >> $GITHUB_ENV
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            echo "$key=$value" >> "$GITHUB_ENV"
           done < .repo
           
           grep -o '^[^=]*_URL=' .repo | sed 's/_URL=//' > packages.txt
@@ -29,41 +30,43 @@ jobs:
       - name: Fetch Latest Tags for All Packages
         id: fetch_latest_tags
         run: |
-          echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
-          
+          echo "UPDATE_NEEDED=false" >> "$GITHUB_ENV"
+
+          FILTER_RC=false
+
           for pkg in $(cat packages.txt); do
             pkg_url="${pkg}_URL"
             pkg_tag="${pkg}_TAG"
 
             if [[ "${!pkg_tag}" =~ ^(main|master|dev|snapshot)$ ]]; then
               echo "::notice::⏩ $pkg: skipping -> ${!pkg_tag}"
-              echo "${pkg}_UPDATE_NEEDED=false" >> $GITHUB_ENV
+              echo "${pkg}_UPDATE_NEEDED=false" >> "$GITHUB_ENV"
               continue
             fi
 
-            if [ "$pkg" = "OpenWrt" ]; then
-              latest_tag=$(git ls-remote --tags --refs ${!pkg_url} |
-#                grep -v '\-rc\|-alpha\|-beta\|-preview' |
+            if [ "$FILTER_RC" = true ]; then
+              latest_tag=$(git ls-remote --tags --refs "${!pkg_url}" |
+                grep -Ev '\-(rc|alpha|beta|preview)' |
                 grep -o 'refs/tags/[vV]*.*' |
                 sort -V |
                 tail -n1 |
-                sed 's/refs\/tags\///')
+                sed 's#refs/tags/##')
             else
-              latest_tag=$(git ls-remote --tags --refs ${!pkg_url} |
+              latest_tag=$(git ls-remote --tags --refs "${!pkg_url}" |
                 grep -o 'refs/tags/[vV]*.*' |
                 sort -V |
                 tail -n1 |
-                sed 's/refs\/tags\///')
+                sed 's#refs/tags/##')
             fi
-            
-            echo "LATEST_${pkg}_TAG=$latest_tag" >> $GITHUB_ENV
-            
-            if [ "$latest_tag" != "${!pkg_tag}" ] && 
+
+            echo "LATEST_${pkg}_TAG=$latest_tag" >> "$GITHUB_ENV"
+
+            if [ "$latest_tag" != "${!pkg_tag}" ] && \
                [ "$(printf '%s\n' "$latest_tag" "${!pkg_tag}" | sort -V | head -n1)" != "$latest_tag" ]; then
-              echo "${pkg}_UPDATE_NEEDED=true" >> $GITHUB_ENV
-              echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
+              echo "${pkg}_UPDATE_NEEDED=true" >> "$GITHUB_ENV"
+              echo "UPDATE_NEEDED=true" >> "$GITHUB_ENV"
             else
-              echo "${pkg}_UPDATE_NEEDED=false" >> $GITHUB_ENV
+              echo "${pkg}_UPDATE_NEEDED=false" >> "$GITHUB_ENV"
               echo "::notice::✅ $pkg: current -> ${!pkg_tag}"
             fi
           done
