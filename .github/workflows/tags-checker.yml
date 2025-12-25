@@ -43,7 +43,7 @@ jobs:
 
             if [ "$pkg" = "OpenWrt" ]; then
               latest_tag=$(git ls-remote --tags --refs ${!pkg_url} |
-                grep -v '\-rc\|-alpha\|-beta\|-preview' |
+#                grep -v '\-rc\|-alpha\|-beta\|-preview' |
                 grep -o 'refs/tags/[vV]*.*' |
                 sort -V |
                 tail -n1 |
