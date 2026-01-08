@@ -17,6 +17,7 @@ sed -i '/small/d' feeds.conf.default
 
 # ARGON
 git clone https://github.com/jerrykuku/luci-theme-argon
+git clone https://github.com/jerrykuku/luci-app-argon-config
 
 # GOLANG
 rm -rf feeds/packages/lang/golang
