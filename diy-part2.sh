@@ -13,7 +13,10 @@
 #sed -i 's/192.168.1.1/10.0.0.2/g' package/base-files/files/bin/config_generate
 
 # FEEDS
-sed -i '/small-package/d' feeds.conf.default
+sed -i '/small/d' feeds.conf.default
+
+# ARGON
+git clone https://github.com/jerrykuku/luci-theme-argon
 
 # GOLANG
 rm -rf feeds/packages/lang/golang
