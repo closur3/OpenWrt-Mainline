@@ -9,12 +9,13 @@
 # File name: diy-part2.sh
 # Description: OpenWrt DIY script part 2 (After Update feeds)
 
-#
-#sed -i 's/192.168.1.1/10.0.0.2/g' package/base-files/files/bin/config_generate
-
 # GOLANG
 rm -rf feeds/packages/lang/golang
 git clone https://github.com/sbwml/packages_lang_golang feeds/packages/lang/golang
+
+# ARGON
+git clone https://github.com/jerrykuku/luci-theme-argon package/luci-theme-argon
+git clone https://github.com/jerrykuku/luci-app-argon-config package/luci-app-argon-config
 
 # MOSDNS
 find ./ | grep Makefile | grep mosdns | xargs rm -f
