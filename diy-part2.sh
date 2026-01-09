@@ -10,7 +10,9 @@
 # Description: OpenWrt DIY script part 2 (After Update feeds)
 
 # FEEDS
-sed -i '/small/d' feeds.conf.default
+grep "feeds.conf.default" "$GITHUB_WORKSPACE/diy-part1.sh" \
+| sed "s/.*'\(.*\)'.*/\1/" \
+| xargs -I{} sed -i "\|^{}$|d" feeds.conf.default
 
 # GOLANG
 rm -rf feeds/packages/lang/golang
