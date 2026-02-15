@@ -3,4 +3,4 @@ OpenWrt_TAG=v25.12.0-rc4
 OpenClash_URL=https://github.com/vernesong/OpenClash
 OpenClash_TAG=v0.47.055
 MosDNS_URL=https://github.com/sbwml/luci-app-mosdns
-MosDNS_TAG=v5.3.3-r5
+MosDNS_TAG=v5.3.4-r1
