@@ -21,3 +21,13 @@ config interface 'wan'
 	option gateway '10.0.0.1'
 	option netmask '255.255.255.0'
 
+config interface 'dhcp'
+	option proto 'static'
+	option device 'eth2'
+	option force_link '0'
+	option ipaddr '10.0.0.3'
+	option netmask '255.255.255.0'
+	option defaultroute '0'
+	option delegate '0'
+	option metric '100'
+
