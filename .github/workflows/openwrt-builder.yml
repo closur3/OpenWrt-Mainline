@@ -63,11 +63,15 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
-      - name: Read .repo file
-        id: repofile
+      - name: Parse .repo File
         run: |
-          while IFS='=' read -r key value; do
-            echo "$key=$value" >> $GITHUB_ENV
+          while IFS='=' read -r config_key config_value; do
+            [[ "$config_key" =~ ^# || -z "$config_key" ]] && continue
+            clean_key=$(echo "$config_key" | xargs)
+            clean_value=$(echo "$config_value" | xargs)
+            if [[ -n "$clean_key" ]]; then
+              echo "$clean_key=$clean_value" >> "$GITHUB_ENV"
+            fi
           done < .repo
 
       - name: Clone Source Code
@@ -164,5 +168,3 @@ jobs:
           keep_latest: 2
           delete_tags: true
           delete_tag_pattern: ${{ env.OpenWrt_TAG }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
