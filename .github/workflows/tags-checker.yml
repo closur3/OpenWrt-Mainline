@@ -1,9 +1,5 @@
 name: Tags Checker
 
-defaults:
-  run:
-    shell: bash
-
 on:
   workflow_dispatch:
   schedule:
@@ -12,90 +8,63 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    
-    env:
-      UPDATE_NEEDED: 'false'
-      
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@main
+      - uses: actions/checkout@main
 
-      - name: Read .repo file
-        id: repofile
+      - name: Fetch Latest Tags
         run: |
-          while IFS='=' read -r key value; do
-            [[ -z "$key" || "$key" =~ ^# ]] && continue
-            echo "$key=$value" >> "$GITHUB_ENV"
-          done < .repo
-          
-          grep -o '^[^=]*_URL=' .repo | sed 's/_URL=//' > packages.txt
-      
-      - name: Fetch Latest Tags for All Packages
-        id: fetch_latest_tags
-        run: |
-          for pkg in $(cat packages.txt); do
-            pkg_url="${pkg}_URL"
-            pkg_tag="${pkg}_TAG"
-            pkg_filter="${pkg}_FILTER_RC"
+          get_remote_latest_tag() {
+            local target_url="$1"
+            local filter_enabled="$2"
+            local tags_list
+            tags_list=$(git ls-remote --tags --refs "$target_url" | grep -o 'refs/tags/[vV]*.*' | sed 's#refs/tags/##')
+            if [[ "$filter_enabled" == "true" ]]; then
+              tags_list=$(echo "$tags_list" | grep -Ev '\-(rc|alpha|beta|preview)')
+            fi
+            echo "$tags_list" | sort -V | tail -n1
+          }
 
-            if [[ "${!pkg_tag}" =~ ^(main|master|dev|snapshot|openwrt-[0-9]{2}\.[0-9]{2})$ ]]; then
-              echo "::notice::⏩ $pkg: skipping -> ${!pkg_tag}"
-              echo "${pkg}_UPDATE_NEEDED=false" >> "$GITHUB_ENV"
+          GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2)
+          GLOBAL_FILTER_RC=${GLOBAL_FILTER_RC:-false}
+
+          while IFS='=' read -r url_key remote_url; do
+            package_name=${url_key%_URL}
+            current_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2)
+            package_filter_rc=$(grep "^${package_name}_FILTER_RC=" .repo | cut -d'=' -f2)
+            final_filter_strategy=${package_filter_rc:-$GLOBAL_FILTER_RC}
+
+            if [[ "$current_tag" =~ ^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$ ]]; then
+              echo "::notice::⏩ $package_name: skipping -> $current_tag"
               continue
             fi
 
-            apply_filter="${!pkg_filter:-${FILTER_RC:-false}}"
+            latest_tag=$(get_remote_latest_tag "$remote_url" "$final_filter_strategy")
 
-            raw_tags=$(git ls-remote --tags --refs "${!pkg_url}" | grep -o 'refs/tags/[vV]*.*' | sed 's#refs/tags/##')
-
-            if [ "$apply_filter" = "true" ]; then
-              raw_tags=$(echo "$raw_tags" | grep -Ev '\-(rc|alpha|beta|preview)')
+            if [[ -z "$latest_tag" ]]; then
+              echo "::warning::⚠️ $package_name: No tags found at $remote_url"
+              continue
             fi
 
-            latest_tag=$(echo "$raw_tags" | sort -V | tail -n1)
-
-            echo "LATEST_${pkg}_TAG=$latest_tag" >> "$GITHUB_ENV"
-
-            if [ "$latest_tag" != "${!pkg_tag}" ] && \
-               [ "$(printf '%s\n' "$latest_tag" "${!pkg_tag}" | sort -V | head -n1)" != "$latest_tag" ]; then
-              echo "${pkg}_UPDATE_NEEDED=true" >> "$GITHUB_ENV"
-              echo "UPDATE_NEEDED=true" >> "$GITHUB_ENV"
+            if [[ "$latest_tag" != "$current_tag" ]] && \
+               [[ "$(printf '%s\n%s' "$latest_tag" "$current_tag" | sort -V | head -1)" == "$current_tag" ]]; then
+              sed -i "s|^${package_name}_TAG=.*|${package_name}_TAG=$latest_tag|" .repo
+              echo "::notice::⬆️ $package_name: updated -> $latest_tag"
+              commit_details="${commit_details:+$commit_details, }$package_name to $latest_tag"
+              update_triggered=true
             else
-              echo "${pkg}_UPDATE_NEEDED=false" >> "$GITHUB_ENV"
-              echo "::notice::✅ $pkg: current -> ${!pkg_tag}"
+              echo "::notice::✅ $package_name: current -> $current_tag"
             fi
-          done
-      
-      - name: Update .repo file
-        if: env.UPDATE_NEEDED == 'true'
-        run: |
-          COMMIT_DETAILS=""
-          
-          for pkg in $(cat packages.txt); do
-            pkg_update_needed="${pkg}_UPDATE_NEEDED"
-            latest_tag="LATEST_${pkg}_TAG"
-            
-            if [ "${!pkg_update_needed}" == "true" ]; then
-              sed -i "s|^${pkg}_TAG=.*|${pkg}_TAG=${!latest_tag}|" .repo
-              echo "::notice::⬆️ $pkg: updated -> ${!latest_tag}"
-              
-              if [ -z "$COMMIT_DETAILS" ]; then
-                COMMIT_DETAILS="${pkg} to ${!latest_tag}"
-              else
-                COMMIT_DETAILS="${COMMIT_DETAILS}, ${pkg} to ${!latest_tag}"
-              fi
-            fi
-          done
-          
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .repo
-          git commit -m "Update ${COMMIT_DETAILS}"
-          git push
-      
+          done < <(grep '_URL=' .repo | grep -v '^#')
+
+          if [[ "$update_triggered" == "true" ]]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "Update: $commit_details"
+            git push
+          fi
+
       - name: Delete Expired Workflows
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0
           keep_minimum_runs: 1
-          delete_workflow_pattern: tags-checker.yml
