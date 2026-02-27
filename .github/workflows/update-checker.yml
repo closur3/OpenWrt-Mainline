@@ -24,6 +24,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +44,8 @@ jobs:
 
           GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2)
           GLOBAL_FILTER_RC=${GLOBAL_FILTER_RC:-false}
+          commit_details=""
+          update_triggered=false
 
           while IFS='=' read -r url_key remote_url; do
             package_name=${url_key%_URL}
@@ -145,8 +149,6 @@ jobs:
           key: ${{ env.CACHE_KEY }}
 
       - name: Check Status and Trigger
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REPO="${{ github.repository }}"
           WF_NAME="OpenWrt Builder"
@@ -157,6 +159,7 @@ jobs:
           RUN_DATA=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=1" --jq '.workflow_runs[0]')
           STATUS=$(echo "$RUN_DATA" | jq -r '.conclusion')
           LAST_RUN_TIME=$(echo "$RUN_DATA" | jq -r '.updated_at')
+          TIME_DIFF=0
 
           if [ "$LAST_RUN_TIME" != "null" ]; then
             TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
@@ -168,6 +171,8 @@ jobs:
               STATUS=push
               echo "::notice::📤 Push event triggered"
             fi
+          else
+             echo "::notice::🕘 Last build: null"
           fi
 
           echo "::notice::🕒 Time diff: $TIME_DIFF days"
