@@ -66,12 +66,19 @@ jobs:
 
       - name: Parse .repo File
         run: |
+          SYS_PREFIX=""
           while IFS='=' read -r config_key config_value; do
             [[ "$config_key" =~ ^# || -z "$config_key" ]] && continue
             clean_key=$(echo "$config_key" | xargs)
             clean_value=$(echo "$config_value" | xargs)
             if [[ -n "$clean_key" ]]; then
               echo "$clean_key=$clean_value" >> "$GITHUB_ENV"
+              
+              if [[ -z "$SYS_PREFIX" && "$clean_key" == *_URL ]]; then
+                SYS_PREFIX="${clean_key%_URL}"
+                echo "SYS_PREFIX=$SYS_PREFIX" >> "$GITHUB_ENV"
+                echo "::notice::🎯 Auto-detected system: $SYS_PREFIX"
+              fi
             fi
           done < .repo
 
@@ -79,7 +86,9 @@ jobs:
         working-directory: /workdir
         run: |
           df -hT $PWD
-          git clone ${{ env.OpenWrt_URL }} -b ${{ env.OpenWrt_TAG }} openwrt
+          SYS_URL="${SYS_PREFIX}_URL"
+          SYS_TAG="${SYS_PREFIX}_TAG"
+          git clone "${!SYS_URL}" -b "${!SYS_TAG}" openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
       - name: Cache
@@ -135,6 +144,17 @@ jobs:
         run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
+          
+          SYS_TAG_VAR="${SYS_PREFIX}_TAG"
+          CURRENT_TAG="${!SYS_TAG_VAR}"
+          
+          PREFIX_LOWER=$(echo "$SYS_PREFIX" | tr '[:upper:]' '[:lower:]')
+          CLEAN_TAG=$(echo "$CURRENT_TAG" | sed -E "s/^${PREFIX_LOWER}-//i")
+          
+          BASE_TAG=$(echo "$CLEAN_TAG" | sed 's/-rc.*//')
+          
+          echo "CLEAN_TAG=$CLEAN_TAG" >> $GITHUB_ENV
+          echo "BASE_TAG=$BASE_TAG" >> $GITHUB_ENV
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
           echo "STATUS=success" >> $GITHUB_ENV
           echo "FILE_DATE=_$(date +"%Y.%m.%d_%H%M")" >> $GITHUB_ENV
@@ -143,14 +163,14 @@ jobs:
         uses: actions/upload-artifact@main
         if: env.STATUS == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         with:
-          name: OpenWrt-${{ env.OpenWrt_TAG }}${{ env.FILE_DATE }}
+          name: ${{ env.SYS_PREFIX }}-${{ env.CLEAN_TAG }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
 
       - name: Upload Firmware To Release
         uses: softprops/action-gh-release@master
         if: env.STATUS == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
-          tag_name: OpenWrt-${{ env.OpenWrt_TAG }}${{ env.FILE_DATE }}
+          tag_name: ${{ env.SYS_PREFIX }}-${{ env.CLEAN_TAG }}${{ env.FILE_DATE }}
           files: ${{ env.FIRMWARE }}/*
 
       - name: Cleanup Expired Workflows
@@ -166,4 +186,4 @@ jobs:
         with:
           keep_latest: 2
           delete_tags: true
-          delete_tag_pattern: ^OpenWrt-${{ env.OpenWrt_TAG }}.*
+          delete_tag_pattern: ^${{ env.SYS_PREFIX }}-${{ env.BASE_TAG }}.*
