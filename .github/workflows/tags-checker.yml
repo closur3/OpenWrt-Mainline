@@ -38,7 +38,7 @@ jobs:
             pkg_tag="${pkg}_TAG"
             pkg_filter="${pkg}_FILTER_RC"
 
-            if [[ "${!pkg_tag}" =~ ^(main|master|dev|snapshot)$ ]]; then
+            if [[ "${!pkg_tag}" =~ ^(main|master|dev|snapshot|openwrt-[0-9]{2}\.[0-9]{2})$ ]]; then
               echo "::notice::⏩ $pkg: skipping -> ${!pkg_tag}"
               echo "${pkg}_UPDATE_NEEDED=false" >> "$GITHUB_ENV"
               continue
