@@ -154,14 +154,14 @@ jobs:
           tag_name: OpenWrt-${{ env.OpenWrt_TAG }}${{ env.FILE_DATE }}
           files: ${{ env.FIRMWARE }}/*
 
-      - name: Delete Expired Workflows
+      - name: Cleanup Expired Workflows
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0
           keep_minimum_runs: 1
           delete_workflow_pattern: openwrt-builder.yml
 
-      - name: Delete Expired Releases
+      - name: Cleanup Expired Releases
         uses: dev-drprasad/delete-older-releases@master
         if: env.STATUS == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
