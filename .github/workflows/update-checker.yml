@@ -1,0 +1,186 @@
+name: Update Checker
+
+on:
+  push:
+    paths:
+      - '.config'
+      - 'files/**'
+      - '*.sh'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4,12,20 * * *'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- 1. 检查并更新 Tags ---
+      - name: Fetch Latest Tags
+        run: |
+          get_remote_latest_tag() {
+            local target_url="$1"
+            local filter_enabled="$2"
+            local tags_list
+            tags_list=$(git ls-remote --tags --refs "$target_url" | grep -o 'refs/tags/[vV]*.*' | sed 's#refs/tags/##')
+            if [[ "$filter_enabled" == "true" ]]; then
+              tags_list=$(echo "$tags_list" | grep -Ev '\-(rc|alpha|beta|preview)')
+            fi
+            echo "$tags_list" | sort -V | tail -n1
+          }
+
+          GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2)
+          GLOBAL_FILTER_RC=${GLOBAL_FILTER_RC:-false}
+
+          while IFS='=' read -r url_key remote_url; do
+            package_name=${url_key%_URL}
+            current_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2)
+            package_filter_rc=$(grep "^${package_name}_FILTER_RC=" .repo | cut -d'=' -f2)
+            final_filter_strategy=${package_filter_rc:-$GLOBAL_FILTER_RC}
+
+            if [[ "$current_tag" =~ ^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$ ]]; then
+              echo "::notice::⏩ $package_name: skipping -> $current_tag"
+              continue
+            fi
+
+            latest_tag=$(get_remote_latest_tag "$remote_url" "$final_filter_strategy")
+
+            if [[ -z "$latest_tag" ]]; then
+              echo "::warning::⚠️ $package_name: No tags found at $remote_url"
+              continue
+            fi
+
+            if [[ "$latest_tag" != "$current_tag" ]] && \
+               [[ "$(printf '%s\n%s' "$latest_tag" "$current_tag" | sort -V | head -1)" == "$current_tag" ]]; then
+              sed -i "s|^${package_name}_TAG=.*|${package_name}_TAG=$latest_tag|" .repo
+              echo "::notice::⬆️ $package_name: updated -> $latest_tag"
+              commit_details="${commit_details:+$commit_details, }$package_name to $latest_tag"
+              update_triggered=true
+            else
+              echo "::notice::✅ $package_name: current -> $current_tag"
+            fi
+          done < <(grep '_URL=' .repo | grep -v '^#')
+
+          if [[ "$update_triggered" == "true" ]]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "Update: $commit_details"
+            git push
+          fi
+
+      # --- 2. 检查 Hash 变更 (基于更新后的 .repo) ---
+      - name: Get Latest Commit Hashes
+        run: |
+          while IFS='=' read -r url_key remote_url; do
+            [[ "$url_key" =~ ^# || -z "$url_key" ]] && continue
+            
+            package_name=${url_key%_URL}
+            target_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2)
+            
+            latest_hash=$(git ls-remote "$remote_url" "refs/heads/$target_tag" | awk '{print $1}')
+            if [ -z "$latest_hash" ]; then
+              latest_hash=$(git ls-remote --tags "$remote_url" "$target_tag" | awk '{print $1}' | head -n1)
+            fi
+
+            if [ -n "$latest_hash" ]; then
+              echo "${package_name}_HASH=$latest_hash" >> hash_results.tmp
+              cache_payload="${cache_payload:+$cache_payload/}${package_name}-${latest_hash:0:8}"
+              [ -z "$first_package" ] && first_package="$package_name"
+            fi
+          done < <(grep '_URL=' .repo)
+
+          echo "CACHE_KEY=$cache_payload" >> "$GITHUB_ENV"
+          echo "FIRST_PKG=$first_package" >> "$GITHUB_ENV"
+
+      - name: Restore Previous Hashes
+        uses: actions/cache/restore@v4
+        id: cache_previous
+        with:
+          path: .commit-hashes/
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: ${{ env.FIRST_PKG }}-
+
+      - name: Compare Changes
+        run: |
+          mkdir -p .commit-hashes
+          changes_detected=false
+          
+          while IFS='=' read -r package_info; do
+            package_name=${package_info%_HASH=*}
+            current_hash=${package_info#*=}
+            hash_storage_file=".commit-hashes/.${package_name}CommitHash"
+            
+            if [ -f "$hash_storage_file" ]; then
+              previous_hash=$(cat "$hash_storage_file")
+              if [ "$previous_hash" != "$current_hash" ]; then
+                echo "::notice::🔄 $package_name: changed -> $current_hash"
+                changes_detected=true
+              else
+                echo "::notice::✅ $package_name: current -> $current_hash"
+              fi
+            else
+              echo "::notice::✨ $package_name: added -> $current_hash"
+              changes_detected=true
+            fi
+            echo "$current_hash" > "$hash_storage_file"
+          done < hash_results.tmp
+          
+          echo "CHANGES_DETECTED=$changes_detected" >> "$GITHUB_ENV"
+
+      - name: Save Cache
+        if: env.CHANGES_DETECTED == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .commit-hashes/
+          key: ${{ env.CACHE_KEY }}
+
+      # --- 3. 检查状态并触发构建 ---
+      - name: Check Status and Trigger
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+          WF_NAME="OpenWrt Builder"
+          
+          WF_DATA=$(gh api "repos/$REPO/actions/workflows" --jq ".workflows[] | select(.name==\"$WF_NAME\")")
+          WF_ID=$(echo "$WF_DATA" | jq -r '.id')
+          
+          RUN_DATA=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=1" --jq '.workflow_runs[0]')
+          STATUS=$(echo "$RUN_DATA" | jq -r '.conclusion')
+          LAST_RUN_TIME=$(echo "$RUN_DATA" | jq -r '.updated_at')
+
+          if [ "$LAST_RUN_TIME" != "null" ]; then
+            TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
+            echo "::notice::🕘 Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
+
+            if [ "$CHANGES_DETECTED" == "true" ]; then
+              STATUS=stale
+            elif [ "${{ github.event_name }}" == "push" ]; then
+              STATUS=push
+              echo "::notice::📤 Push event triggered"
+            fi
+          fi
+
+          echo "::notice::🕒 Time diff: $TIME_DIFF days"
+          echo "::notice::🖥️ Status: $STATUS"
+
+          if [ "$STATUS" != "success" ]; then
+            gh api -X POST "repos/$REPO/dispatches" -F "event_type=$WF_NAME"
+          fi
+
+      # --- 4. 清理工作流日志 ---
+      - name: Delete Expired Workflows
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 0
+          keep_minimum_runs: 1
+          # 将当前合并后的工作流名称填入这里，如果你将其命名为 checker.yml，这里就写 checker.yml
+          delete_workflow_pattern: update-checker.yml
+
+      - name: Delete Zero runs
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 0
+          keep_minimum_runs: 0
+          delete_workflow_pattern: zero-runs.yml
