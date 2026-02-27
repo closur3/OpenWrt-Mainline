@@ -6,9 +6,20 @@ on:
       - '.config'
       - 'files/**'
       - '*.sh'
-  workflow_dispatch:
   schedule:
     - cron: '0 4,12,20 * * *'
+  workflow_dispatch:
+    inputs:
+      cleanup_all_workflows:
+        description: 'Cleanup All Workflows'
+        type: boolean
+        required: false
+        default: false
+      cleanup_releases:
+        description: 'Cleanup All Releases'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   check:
@@ -16,7 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- 1. 检查并更新 Tags ---
       - name: Fetch Latest Tags
         run: |
           get_remote_latest_tag() {
@@ -69,7 +79,6 @@ jobs:
             git push
           fi
 
-      # --- 2. 检查 Hash 变更 (基于更新后的 .repo) ---
       - name: Get Latest Commit Hashes
         run: |
           while IFS='=' read -r url_key remote_url; do
@@ -135,7 +144,6 @@ jobs:
           path: .commit-hashes/
           key: ${{ env.CACHE_KEY }}
 
-      # --- 3. 检查状态并触发构建 ---
       - name: Check Status and Trigger
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -169,18 +177,23 @@ jobs:
             gh api -X POST "repos/$REPO/dispatches" -F "event_type=$WF_NAME"
           fi
 
-      # --- 4. 清理工作流日志 ---
-      - name: Delete Expired Workflows
+      - name: Cleanup Expired Workflows
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0
           keep_minimum_runs: 1
-          # 将当前合并后的工作流名称填入这里，如果你将其命名为 checker.yml，这里就写 checker.yml
           delete_workflow_pattern: update-checker.yml
 
-      - name: Delete Zero runs
+      - name: Cleanup All Workflows
+        if: github.event.inputs.cleanup_all_workflows == 'true'
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0
           keep_minimum_runs: 0
-          delete_workflow_pattern: zero-runs.yml
+
+      - name: Cleanup All Releases
+        if: github.event.inputs.cleanup_releases == 'true'
+        uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 0
+          delete_tags: true
