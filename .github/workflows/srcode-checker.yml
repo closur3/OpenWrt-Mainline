@@ -14,142 +14,105 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@main
+      - uses: actions/checkout@v4
 
-      - name: Read .repo file
-        id: repofile
+      - name: Get Latest Commit Hashes
         run: |
-          while IFS='=' read -r key value; do
-            echo "$key=$value" >> $GITHUB_ENV
-          done < .repo
-          
-          grep -o '^[^=]*_URL=' .repo | sed 's/_URL=//' > packages.txt
-
-      - name: Get Commit Hashes
-        id: get_commit_hashes
-        run: |
-          for pkg in $(cat packages.txt); do
-            pkg_url="${pkg}_URL"
-            pkg_tag="${pkg}_TAG"
+          while IFS='=' read -r url_key remote_url; do
+            [[ "$url_key" =~ ^# || -z "$url_key" ]] && continue
             
-            git clone --depth 1 ${!pkg_url} -b ${!pkg_tag} temp_${pkg}
+            package_name=${url_key%_URL}
+            target_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2)
             
-            commit_hash=$(git -C temp_${pkg} rev-parse HEAD)
-            echo "${pkg}CommitHash=$commit_hash" >> $GITHUB_OUTPUT
-            
-            echo "$pkg=$commit_hash" >> commit_hashes.txt
-          done
-
-          CACHE_KEY=""
-          first_pkg=$(head -1 commit_hashes.txt | cut -d'=' -f1)
-          while IFS='=' read -r pkg commit_hash; do
-            if [ -z "$CACHE_KEY" ]; then
-              CACHE_KEY="${pkg}-${commit_hash:0:8}"
-            else
-              CACHE_KEY="$CACHE_KEY/${pkg}-${commit_hash:0:8}"
+            latest_hash=$(git ls-remote "$remote_url" "refs/heads/$target_tag" | awk '{print $1}')
+            if [ -z "$latest_hash" ]; then
+              latest_hash=$(git ls-remote --tags "$remote_url" "$target_tag" | awk '{print $1}' | head -n1)
             fi
-          done < commit_hashes.txt
-          echo "CACHE_KEY=$CACHE_KEY" >> $GITHUB_ENV
-          echo "FIRST_PKG=$first_pkg" >> $GITHUB_ENV
-          
-          cat commit_hashes.txt
 
-      - name: Restore Previous Commit Hashes
-        uses: actions/cache/restore@main
+            if [ -n "$latest_hash" ]; then
+              echo "${package_name}_HASH=$latest_hash" >> hash_results.tmp
+              cache_payload="${cache_payload:+$cache_payload/}${package_name}-${latest_hash:0:8}"
+              [ -z "$first_package" ] && first_package="$package_name"
+            fi
+          done < <(grep '_URL=' .repo)
+
+          echo "CACHE_KEY=$cache_payload" >> "$GITHUB_ENV"
+          echo "FIRST_PKG=$first_package" >> "$GITHUB_ENV"
+
+      - name: Restore Previous Hashes
+        uses: actions/cache/restore@v4
         id: cache_previous
         with:
-          path: |
-            .commit-hashes/
+          path: .commit-hashes/
           key: ${{ env.CACHE_KEY }}
-          restore-keys: |
-            ${{ env.FIRST_PKG }}-
+          restore-keys: ${{ env.FIRST_PKG }}-
 
-      - name: Compare and Save New Commit Hashes
+      - name: Compare Changes
         run: |
           mkdir -p .commit-hashes
           changes_detected=false
           
-          while IFS='=' read -r pkg commit_hash; do
-            hash_file=".commit-hashes/.${pkg}CommitHash"
+          while IFS='=' read -r package_info; do
+            package_name=${package_info%_HASH=*}
+            current_hash=${package_info#*=}
+            hash_storage_file=".commit-hashes/.${package_name}CommitHash"
             
-            if [ -f "$hash_file" ]; then
-              old_commit=$(cat "$hash_file")
-              if [ "$old_commit" != "$commit_hash" ]; then
-                echo "::notice::🔄 $pkg: changed -> $commit_hash"
+            if [ -f "$hash_storage_file" ]; then
+              previous_hash=$(cat "$hash_storage_file")
+              if [ "$previous_hash" != "$current_hash" ]; then
+                echo "::notice::🔄 $package_name: changed -> $current_hash"
                 changes_detected=true
               else
-                echo "::notice::✅ $pkg: current -> $commit_hash"
+                echo "::notice::✅ $package_name: current -> $current_hash"
               fi
             else
-              echo "::notice::✨ $pkg: added -> $commit_hash"
+              echo "::notice::✨ $package_name: added -> $current_hash"
               changes_detected=true
             fi
-            
-            echo "$commit_hash" > "$hash_file"
-          done < commit_hashes.txt
+            echo "$current_hash" > "$hash_storage_file"
+          done < hash_results.tmp
           
-          if [ "$changes_detected" = true ]; then
-            echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
-          else
-            echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
-          fi
+          echo "CHANGES_DETECTED=$changes_detected" >> "$GITHUB_ENV"
 
-      - name: Save New Commit Hashes Cache
+      - name: Save Cache
         if: env.CHANGES_DETECTED == 'true'
-        uses: actions/cache/save@main
+        uses: actions/cache/save@v4
         with:
-          path: |
-            .commit-hashes/
+          path: .commit-hashes/
           key: ${{ env.CACHE_KEY }}
 
-      - name: Check OpenWrt Builder Status
-        id: check_builder_status
+      - name: Check Status and Trigger
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          WORKFLOW_NAME="OpenWrt Builder"
-          OWNER="${{ github.repository_owner }}"
-          REPO="${{ github.event.repository.name }}"
+          REPO="${{ github.repository }}"
+          WF_NAME="OpenWrt Builder"
           
-          WORKFLOW_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/$OWNER/$REPO/actions/workflows" | \
-          jq -r --arg NAME "$WORKFLOW_NAME" '.workflows[] | select(.name == $NAME) | .id')
+          WF_DATA=$(gh api "repos/$REPO/actions/workflows" --jq ".workflows[] | select(.name==\"$WF_NAME\")")
+          WF_ID=$(echo "$WF_DATA" | jq -r '.id')
+          
+          RUN_DATA=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=1" --jq '.workflow_runs[0]')
+          STATUS=$(echo "$RUN_DATA" | jq -r '.conclusion')
+          LAST_RUN_TIME=$(echo "$RUN_DATA" | jq -r '.updated_at')
 
-          if [ -z "$WORKFLOW_ID" ]; then
-            echo "Workflow not found"
-            exit 1
-          fi
-
-          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/$OWNER/$REPO/actions/workflows/$WORKFLOW_ID/runs?status=completed&per_page=1")
-
-          STATUS=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].conclusion')
-          LAST_RUN_TIME=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].updated_at')
-
-          if [ "$LAST_RUN_TIME" == 'null' ]; then
-            TIME_DIFF=0
-            echo "::notice::🕘 Last build: null"
-          else
+          if [ "$LAST_RUN_TIME" != "null" ]; then
             TIME_DIFF=$(awk 'BEGIN {print int((('$(date +%s)' - '$(date -d "$LAST_RUN_TIME" +%s)') / 86400) + 0.5)}')
             echo "::notice::🕘 Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
 
-            if [ "${{ env.CHANGES_DETECTED }}" == "true" ]; then
+            if [ "$CHANGES_DETECTED" == "true" ]; then
               STATUS=stale
-            elif [ "${{ github.event_name }}" == 'push' ]; then
+            elif [ "${{ github.event_name }}" == "push" ]; then
               STATUS=push
               echo "::notice::📤 Push event triggered"
             fi
           fi
 
-          echo "BUILDER_STATUS=$STATUS" >> $GITHUB_ENV
           echo "::notice::🕒 Time diff: $TIME_DIFF days"
           echo "::notice::🖥️ Status: $STATUS"
 
-      - name: Trigger Build
-        if: env.BUILDER_STATUS != 'success'
-        uses: peter-evans/repository-dispatch@main
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: OpenWrt Builder
+          if [ "$STATUS" != "success" ]; then
+            gh api -X POST "repos/$REPO/dispatches" -F "event_type=$WF_NAME"
+          fi
 
       - name: Delete Expired Workflows
         uses: Mattraks/delete-workflow-runs@main
