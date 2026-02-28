@@ -77,7 +77,6 @@ jobs:
               if [[ -z "$SYS_PREFIX" && "$clean_key" == *_URL ]]; then
                 SYS_PREFIX="${clean_key%_URL}"
                 echo "SYS_PREFIX=$SYS_PREFIX" >> "$GITHUB_ENV"
-                echo "::notice::🎯 Auto-detected system: $SYS_PREFIX"
               fi
             fi
           done < .repo
