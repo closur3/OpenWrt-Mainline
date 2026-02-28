@@ -39,6 +39,5 @@ uci add_list dhcp.dhcp.dhcp_option='6,10.0.0.7'
 uci commit dhcp
 
 # LAN zone
-LAN_ZONE=$(uci show firewall | grep -E "firewall\.@zone\[[0-9]+\]\.name='lan'" | grep -oE '\[[0-9]+\]' | tr -d '[]')
-uci add_list firewall.@zone[${LAN_ZONE}].network='dhcp'
+uci add_list firewall.@zone[0].network='dhcp'
 uci commit firewall
