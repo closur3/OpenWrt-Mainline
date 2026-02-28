@@ -1,24 +1,42 @@
 #!/bin/sh
 
+# Timezone
 uci set system.@system[0].timezone='CST-8'
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci commit system
 
+# Diagnostics
 uci set luci.diag.dns='www.qq.com'
 uci set luci.diag.ping='www.qq.com'
 uci set luci.diag.route='www.qq.com'
 uci commit luci
 
+# DNS
 uci set dhcp.@dnsmasq[0].cachesize='0'
 uci set dhcp.@dnsmasq[0].min_cache_ttl='0'
 uci set dhcp.@dnsmasq[0].noresolv='1'
 
+# DHCP
 uci set dhcp.lan.ignore='1'
-
 uci -q del dhcp.wan
 uci -q del dhcp.lan.ra
 uci -q del dhcp.lan.ra_slaac
 uci -q del dhcp.lan.ra_flags
 uci -q del dhcp.lan.dhcpv6
 uci -q del dhcp.lan.ndp
+
+# DHCP pool
+uci set dhcp.dhcp='dhcp'
+uci set dhcp.dhcp.interface='dhcp'
+uci set dhcp.dhcp.start='100'
+uci set dhcp.dhcp.limit='150'
+uci set dhcp.dhcp.leasetime='12h'
+uci set dhcp.dhcp.dhcpv4='server'
+uci add_list dhcp.dhcp.dhcp_option='3,10.0.0.1'
+uci add_list dhcp.dhcp.dhcp_option='6,10.0.0.7'
 uci commit dhcp
+
+# LAN zone
+LAN_ZONE=$(uci show firewall | grep -E "firewall\.@zone\[[0-9]+\]\.name='lan'" | grep -oE '\[[0-9]+\]' | tr -d '[]')
+uci add_list firewall.@zone[${LAN_ZONE}].network='dhcp'
+uci commit firewall
