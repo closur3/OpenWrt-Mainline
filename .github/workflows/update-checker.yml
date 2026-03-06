@@ -39,18 +39,18 @@ jobs:
             if [[ "$filter_enabled" == "true" ]]; then
               tags_list=$(echo "$tags_list" | grep -Ev '\-(rc|alpha|beta|preview)')
             fi
-            echo "$tags_list" | sort -V | tail -n1
+            echo "$tags_list" | sort -V | tail -n1 | tr -d '\r'
           }
 
-          GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2)
+          GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2 | tr -d '\r')
           GLOBAL_FILTER_RC=${GLOBAL_FILTER_RC:-false}
           commit_details=""
           update_triggered=false
 
           while IFS='=' read -r url_key remote_url; do
             package_name=${url_key%_URL}
-            current_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2)
-            package_filter_rc=$(grep "^${package_name}_FILTER_RC=" .repo | cut -d'=' -f2)
+            current_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2 | tr -d '\r')
+            package_filter_rc=$(grep "^${package_name}_FILTER_RC=" .repo | cut -d'=' -f2 | tr -d '\r')
             final_filter_strategy=${package_filter_rc:-$GLOBAL_FILTER_RC}
 
             if [[ "$current_tag" =~ ^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$ ]]; then
