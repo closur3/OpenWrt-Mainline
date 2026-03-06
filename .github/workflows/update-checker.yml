@@ -39,18 +39,18 @@ jobs:
             if [[ "$filter_enabled" == "true" ]]; then
               tags_list=$(echo "$tags_list" | grep -Ev '\-(rc|alpha|beta|preview)')
             fi
-            echo "$tags_list" | sort -V | tail -n1 | tr -d '\r'
+            echo "$tags_list" | sed -E 's/-(rc|alpha|beta|preview)/~\1/g' | sort -V | sed -E 's/~(rc|alpha|beta|preview)/-\1/g' | tail -n1
           }
 
-          GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2 | tr -d '\r')
+          GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2)
           GLOBAL_FILTER_RC=${GLOBAL_FILTER_RC:-false}
           commit_details=""
           update_triggered=false
 
           while IFS='=' read -r url_key remote_url; do
             package_name=${url_key%_URL}
-            current_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2 | tr -d '\r')
-            package_filter_rc=$(grep "^${package_name}_FILTER_RC=" .repo | cut -d'=' -f2 | tr -d '\r')
+            current_tag=$(grep "^${package_name}_TAG=" .repo | cut -d'=' -f2)
+            package_filter_rc=$(grep "^${package_name}_FILTER_RC=" .repo | cut -d'=' -f2)
             final_filter_strategy=${package_filter_rc:-$GLOBAL_FILTER_RC}
 
             if [[ "$current_tag" =~ ^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$ ]]; then
@@ -66,7 +66,7 @@ jobs:
             fi
 
             if [[ "$latest_tag" != "$current_tag" ]] && \
-               [[ "$(printf '%s\n%s' "$latest_tag" "$current_tag" | sort -V | head -1)" == "$current_tag" ]]; then
+               [[ "$(printf '%s\n%s' "$latest_tag" "$current_tag" | sed -E 's/-(rc|alpha|beta|preview)/~\1/g' | sort -V | head -1 | sed -E 's/~(rc|alpha|beta|preview)/-\1/g')" == "$current_tag" ]]; then
               sed -i "s|^${package_name}_TAG=.*|${package_name}_TAG=$latest_tag|" .repo
               echo "::notice::⬆️ $package_name: updated -> $latest_tag"
               commit_details="${commit_details:+$commit_details, }$package_name to $latest_tag"
