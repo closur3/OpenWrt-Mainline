@@ -72,7 +72,7 @@ jobs:
               commit_details="${commit_details:+$commit_details, }$package_name to $latest_tag"
               update_triggered=true
             else
-              echo "::notice::✅ $package_name: identical -> $current_tag"
+              echo "::notice::✅ $package_name: up-to-date -> $current_tag"
             fi
           done < <(grep '_URL=' .repo | grep -v '^#')
 
