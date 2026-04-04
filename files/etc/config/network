@@ -30,4 +30,13 @@ config interface 'dhcp'
 	option defaultroute '0'
 	option delegate '0'
 	option metric '100'
+	option multipath 'off'
+
+config interface 'dhcp6'
+	option proto 'dhcpv6'
+	option device '@dhcp'
+	option reqaddress 'try'
+	option reqprefix 'auto'
+	option norelease '1'
+	option multipath 'off'
 
