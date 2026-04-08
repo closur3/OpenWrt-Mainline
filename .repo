@@ -1,8 +1,8 @@
 
-# ====== 全局配置 ======
+# GLOBAL
 FILTER_RC=false
 
-# ====== 包配置 ======
+# PACKAGES
 OpenWrt_URL=https://github.com/openwrt/openwrt
 OpenWrt_TAG=v25.12.2
 OpenWrt_FILTER_RC=true

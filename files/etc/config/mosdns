@@ -33,4 +33,5 @@ config mosdns 'config'
 	option lazy_cache_ttl '86400'
 	option dump_file '1'
 	option dump_interval '3600'
+	option apple_optimization '1'
 
