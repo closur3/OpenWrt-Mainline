@@ -1,2 +1,2 @@
-api.dler.io
 api.wcc.best
+api.asailor.org
