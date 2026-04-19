@@ -9,17 +9,6 @@ on:
   schedule:
     - cron: '0 4,12,20 * * *'
   workflow_dispatch:
-    inputs:
-      cleanup_all_workflows:
-        description: 'Cleanup All Workflows'
-        type: boolean
-        required: false
-        default: false
-      cleanup_releases:
-        description: 'Cleanup All Releases'
-        type: boolean
-        required: false
-        default: false
 
 jobs:
   check:
@@ -212,12 +201,5 @@ jobs:
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0
-          keep_minimum_runs: ${{ github.event.inputs.cleanup_all_workflows == 'true' && '0' || '1' }}
-          delete_workflow_pattern: ${{ github.event.inputs.cleanup_all_workflows == 'true' && '' || 'update-checker.yml' }}
-
-      - name: Cleanup All Releases
-        if: github.event.inputs.cleanup_releases == 'true'
-        uses: dev-drprasad/delete-older-releases@master
-        with:
-          keep_latest: 0
-          delete_tags: true
+          keep_minimum_runs: 1
+          delete_workflow_pattern: update-checker.yml
