@@ -73,7 +73,6 @@ jobs:
             clean_value=$(echo "$config_value" | xargs)
             if [[ -n "$clean_key" ]]; then
               echo "$clean_key=$clean_value" >> "$GITHUB_ENV"
-              
               if [[ -z "$SYS_PREFIX" && "$clean_key" == *_URL ]]; then
                 SYS_PREFIX="${clean_key%_URL}"
                 echo "SYS_PREFIX=$SYS_PREFIX" >> "$GITHUB_ENV"
@@ -143,33 +142,35 @@ jobs:
         run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
-          
+
           SYS_TAG_VAR="${SYS_PREFIX}_TAG"
           CURRENT_TAG="${!SYS_TAG_VAR}"
-          
           PREFIX_LOWER=$(echo "$SYS_PREFIX" | tr '[:upper:]' '[:lower:]')
-          CLEAN_TAG=$(echo "$CURRENT_TAG" | sed -E "s/^${PREFIX_LOWER}-//i")
-          
-          BASE_TAG=$(echo "$CLEAN_TAG" | sed 's/-rc.*//')
-          
-          echo "CLEAN_TAG=$CLEAN_TAG" >> $GITHUB_ENV
-          echo "BASE_TAG=$BASE_TAG" >> $GITHUB_ENV
-          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-          echo "STATUS=success" >> $GITHUB_ENV
-          echo "FILE_DATE=_$(date +"%Y.%m.%d_%H%M")" >> $GITHUB_ENV
+
+          VER_FULL=$(echo "$CURRENT_TAG" | sed -E "s/^${PREFIX_LOWER}-//i")
+          VER_BASE=$(echo "$VER_FULL" | sed 's/-rc[0-9]*//')
+          BUILD_DATE="$(date +"%Y.%m.%d_%H%M")"
+          RELEASE_TAG="${SYS_PREFIX}-${VER_FULL}_${BUILD_DATE}"
+
+          echo "VER_FULL=$VER_FULL"       >> $GITHUB_ENV
+          echo "VER_BASE=$VER_BASE"       >> $GITHUB_ENV
+          echo "BUILD_DATE=$BUILD_DATE"   >> $GITHUB_ENV
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+          echo "FIRMWARE=$PWD"            >> $GITHUB_ENV
+          echo "STATUS=success"           >> $GITHUB_ENV
 
       - name: Upload Firmware To Artifact
         uses: actions/upload-artifact@main
         if: env.STATUS == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         with:
-          name: ${{ env.SYS_PREFIX }}-${{ env.CLEAN_TAG }}${{ env.FILE_DATE }}
+          name: ${{ env.RELEASE_TAG }}
           path: ${{ env.FIRMWARE }}
 
       - name: Upload Firmware To Release
         uses: softprops/action-gh-release@master
         if: env.STATUS == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
-          tag_name: ${{ env.SYS_PREFIX }}-${{ env.CLEAN_TAG }}${{ env.FILE_DATE }}
+          tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.FIRMWARE }}/*
 
       - name: Cleanup Expired Workflows
@@ -180,9 +181,36 @@ jobs:
           delete_workflow_pattern: openwrt-builder.yml
 
       - name: Cleanup Expired Releases
-        uses: dev-drprasad/delete-older-releases@master
         if: env.STATUS == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
-        with:
-          keep_latest: 2
-          delete_tags: true
-          delete_tag_pattern: ^${{ env.SYS_PREFIX }}-${{ env.BASE_TAG }}.*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          REPO="${{ github.repository }}"
+          VER_BASE="${{ env.VER_BASE }}"
+          SYS_PREFIX="${{ env.SYS_PREFIX }}"
+          SYS_PREFIX_ESC=$(printf '%s' "$SYS_PREFIX" | sed 's/[.[\*^$(){}+?|]/\\&/g')
+
+          releases=$(gh release list --repo "$REPO" --limit 100 --json tagName,createdAt \
+            | jq -r 'sort_by(.createdAt) | reverse | .[].tagName' \
+            | grep "^${SYS_PREFIX_ESC}-")
+
+          declare -A seen
+
+          while IFS= read -r tag; do
+            base=$(echo "$tag" | grep -oP "^${SYS_PREFIX_ESC}-\K[^_]+" | sed 's/-rc[0-9]*//')
+
+            if [[ "$base" == "$VER_BASE" ]]; then
+              limit=2
+            else
+              limit=1
+            fi
+
+            count=${seen[$base]:-0}
+            if (( count < limit )); then
+              seen[$base]=$((count + 1))
+            else
+              echo "Deleting: $tag"
+              gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag
+            fi
+          done <<< "$releases"
