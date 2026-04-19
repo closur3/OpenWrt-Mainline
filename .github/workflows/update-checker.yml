@@ -191,7 +191,7 @@ jobs:
             TRIGGER_REASON="no previous build"
           fi
 
-          echo "::notice::🖥️ Trigger reason: ${TRIGGER_REASON:-none}"
+          echo "::notice::🖥️ Trigger: ${TRIGGER_REASON:-none}"
 
           if [[ -n "$TRIGGER_REASON" ]]; then
             gh api -X POST "repos/$REPO/dispatches" -F "event_type=$WF_NAME"
