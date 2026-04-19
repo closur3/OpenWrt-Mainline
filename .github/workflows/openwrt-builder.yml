@@ -16,7 +16,6 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_FIRMWARE: false
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
@@ -156,13 +155,6 @@ jobs:
           cd openwrt/bin/targets/*/*
           rm -rf packages
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-
-      - name: Upload Firmware To Artifact
-        uses: actions/upload-artifact@main
-        if: steps.organize.outcome == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-        with:
-          name: ${{ env.RELEASE_TAG }}
-          path: ${{ env.FIRMWARE }}
 
       - name: Upload Firmware To Release
         uses: softprops/action-gh-release@master
