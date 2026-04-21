@@ -119,7 +119,7 @@ jobs:
           echo "FIRST_PKG=$first_pkg" >> "$GITHUB_ENV"
 
       - name: Restore Previous Hashes
-        uses: actions/cache/restore@v1
+        uses: actions/cache/restore@v5
         id: cache_previous
         with:
           path: .commit-hashes/
@@ -154,7 +154,7 @@ jobs:
 
       - name: Save Cache
         if: env.CHANGES_DETECTED == 'true'
-        uses: actions/cache/save@v1
+        uses: actions/cache/save@v5
         with:
           path: .commit-hashes/
           key: ${{ env.CACHE_KEY }}
