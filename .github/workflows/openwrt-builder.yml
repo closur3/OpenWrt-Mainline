@@ -157,7 +157,7 @@ jobs:
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
       - name: Upload Firmware To Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: steps.organize.outcome == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
           tag_name: ${{ env.RELEASE_TAG }}
