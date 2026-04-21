@@ -164,7 +164,7 @@ jobs:
           files: ${{ env.FIRMWARE }}/*
 
       - name: Cleanup Expired Workflows
-        uses: Mattraks/delete-workflow-runs@v1
+        uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
           keep_minimum_runs: 1
