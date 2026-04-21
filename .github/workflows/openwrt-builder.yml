@@ -26,10 +26,10 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@main
+        uses: actions/checkout@v1
 
       - name: Ultimate Free Disk Space
-        uses: endersonmenezes/free-disk-space@main
+        uses: endersonmenezes/free-disk-space@v1
         with:
           remove_android: true
           remove_dotnet: true
@@ -85,7 +85,7 @@ jobs:
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
       - name: Cache
-        uses: klever1988/cachewrtbuild@main
+        uses: klever1988/cachewrtbuild@v1
         with:
           ccache: true
           prefix: ${{ github.workspace }}/openwrt
@@ -109,7 +109,7 @@ jobs:
           $GITHUB_WORKSPACE/$DIY_P2_SH
 
       - name: SSH Connection To Actions
-        uses: P3TERX/ssh2actions@main
+        uses: P3TERX/ssh2actions@v1
         if: github.event.inputs.ssh == 'true'
 
       - name: Download Package
@@ -157,14 +157,14 @@ jobs:
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
       - name: Upload Firmware To Release
-        uses: softprops/action-gh-release@master
+        uses: softprops/action-gh-release@v1
         if: steps.organize.outcome == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.FIRMWARE }}/*
 
       - name: Cleanup Expired Workflows
-        uses: Mattraks/delete-workflow-runs@main
+        uses: Mattraks/delete-workflow-runs@v1
         with:
           retain_days: 0
           keep_minimum_runs: 1
