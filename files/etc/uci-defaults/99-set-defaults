@@ -18,16 +18,11 @@ uci set dhcp.@dnsmasq[0].noresolv='1'
 uci del dhcp.@dnsmasq[0].domain
 uci del dhcp.@dnsmasq[0].expandhosts
 
-# DHCP
-uci set dhcp.lan.ignore='1'
+# DEL DHCP
 uci -q del dhcp.wan
-uci -q del dhcp.lan.ra
-uci -q del dhcp.lan.ra_slaac
-uci -q del dhcp.lan.ra_flags
-uci -q del dhcp.lan.dhcpv6
-uci -q del dhcp.lan.ndp
+uci -q del dhcp.lan
 
-# DHCP pool
+# SET DHCP
 uci set dhcp.dhcp='dhcp'
 uci set dhcp.dhcp.interface='dhcp'
 uci set dhcp.dhcp.start='100'
@@ -36,8 +31,6 @@ uci set dhcp.dhcp.leasetime='12h'
 uci set dhcp.dhcp.dhcpv4='server'
 uci add_list dhcp.dhcp.dhcp_option='3,10.0.0.1'
 uci add_list dhcp.dhcp.dhcp_option='6,10.0.0.7'
-uci set dhcp.dhcp.ra='server'
-uci set dhcp.dhcp.dns_service='0'
 uci commit dhcp
 
 # LAN zone
