@@ -35,4 +35,5 @@ uci commit dhcp
 
 # LAN zone
 uci add_list firewall.@zone[0].network='dhcp'
+uci add_list firewall.@zone[0].network='dhcp6'
 uci commit firewall
