@@ -33,4 +33,5 @@ config mosdns 'config'
 	option dump_interval '3600'
 	option apple_optimization '1'
 	list remote_dns 'https://8.8.8.8/dns-query'
+	list remote_dns 'https://rdns.hsux.de/rdns'
 
