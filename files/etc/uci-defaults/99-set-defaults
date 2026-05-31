@@ -5,6 +5,9 @@ uci set system.@system[0].timezone='CST-8'
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci commit system
 
+# Sysupgrade
+chmod +x /etc/config/sysupgrade.sh
+
 # Diagnostics
 uci set luci.diag.dns='www.qq.com'
 uci set luci.diag.ping='www.qq.com'
