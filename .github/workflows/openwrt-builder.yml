@@ -83,7 +83,7 @@ jobs:
           SYS_TAG="${SYS_PREFIX}_TAG"
           git clone "${!SYS_URL}" -b "${!SYS_TAG}" openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-          COMMIT_HASH=$(cd openwrt && git rev-parse --short HEAD)
+          COMMIT_HASH=$(git -C "$GITHUB_WORKSPACE" rev-parse --short=7 HEAD)
           echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
 
       - name: Cache
