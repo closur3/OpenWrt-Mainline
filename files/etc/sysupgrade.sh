@@ -219,20 +219,6 @@ do_upgrade() {
     log "开始升级系统..."
     log "  固件: $firmware_file"
     log "  保留配置: $([ "$KEEP_CONFIG" -eq 1 ] && echo '是' || echo '否')"
-    echo ""
-    echo "=========================================="
-    echo "  系统即将重启并升级，请勿断电！"
-    echo "=========================================="
-    echo ""
-
-    if [ -t 0 ] && [ -t 1 ]; then
-        printf "确认执行升级？[y/N]: "
-        read -r choice || choice="n"
-        case "$choice" in
-            y|Y) ;;
-            *) log "已取消升级"; exit 0 ;;
-        esac
-    fi
 
     sysupgrade $keep_arg "$firmware_file"
 }
