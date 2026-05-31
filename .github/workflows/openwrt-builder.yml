@@ -83,6 +83,8 @@ jobs:
           SYS_TAG="${SYS_PREFIX}_TAG"
           git clone "${!SYS_URL}" -b "${!SYS_TAG}" openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+          COMMIT_HASH=$(cd openwrt && git rev-parse --short HEAD)
+          echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
 
       - name: Cache
         uses: klever1988/cachewrtbuild@main
@@ -154,6 +156,7 @@ jobs:
         run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
+          echo "${COMMIT_HASH}" >> version.buildinfo
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
       - name: Upload Firmware To Release
