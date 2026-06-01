@@ -29,4 +29,5 @@ git clone https://github.com/sbwml/luci-app-mosdns package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
 # BUILTDATE
-sed -i "s/\(OPENWRT_RELEASE=\".*\)\"/\1 $(date +%y.%m.%d)-${COMMIT_HASH}\"/" package/base-files/files/usr/lib/os-release
+version_id="${FIRMWARE_VERSION_ID:-$(date +%y.%m.%d)-${COMMIT_HASH}}"
+sed -i "s/\(OPENWRT_RELEASE=\".*\)\"/\1 ${version_id}\"/" package/base-files/files/usr/lib/os-release

@@ -13,6 +13,13 @@ make defconfig && \
 cat seed.config
 ```
 
+## LXC OpenWrt Upgrade
+
+```
+wget -O lxc.sh https://raw.githubusercontent.com/closur3/OpenWrt-Mainline/main/lxc.sh && \
+chmod +x lxc.sh && bash lxc.sh
+```
+
 ## Acknowledgments
 
 - [Microsoft Azure](https://azure.microsoft.com)

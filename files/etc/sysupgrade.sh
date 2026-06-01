@@ -128,46 +128,70 @@ init_environment() {
 
 # ================= 版本检查 =================
 
+normalize_mainline_version_id() {
+    echo "$1" | tr -d '\r"' | awk '
+        {
+            for (i = NF; i >= 1; i--) {
+                token = tolower($i)
+                if (token ~ /^[0-9][0-9]\.[0-9][0-9]\.[0-9][0-9]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) {
+                    print token
+                    exit
+                }
+            }
+        }
+    '
+}
+
 check_version() {
     if [ "$FORCE_UPGRADE" -eq 1 ]; then
         log "强制升级模式，跳过版本检查"
         return 0
     fi
 
-    local local_release local_ver local_hash
+    local local_release local_version
     local_release=$(grep "^OPENWRT_RELEASE=" /etc/os-release 2>/dev/null | head -1 | cut -d'"' -f2)
     if [ -z "$local_release" ]; then
         log "无法读取本地版本信息，继续下载"
         return 0
     fi
-    local_ver=$(echo "$local_release" | awk '{print $2}')
-    local_hash=$(echo "$local_release" | awk '{print $NF}' | cut -d'-' -f2)
+    local_version=$(normalize_mainline_version_id "$local_release")
 
-    log "本地版本: $local_ver  hash: $local_hash"
+    if [ -z "$local_version" ]; then
+        log "本地仓库版本标识格式异常，继续下载"
+        return 0
+    fi
 
-    local remote_body remote_hash
-    remote_body=$(wget -q -T 10 -O - \
+    log "本地仓库版本: $local_version"
+
+    local remote_buildinfo remote_version candidate line
+    remote_buildinfo=$(wget -q -T 10 -O - \
         "https://github.com/${GITHUB_REPO}/releases/latest/download/version.buildinfo" 2>/dev/null)
-    if [ -z "$remote_body" ]; then
+    if [ -z "$remote_buildinfo" ]; then
         log "获取远程版本信息失败，继续下载"
         return 0
     fi
 
-    remote_hash=$(echo "$remote_body" | tail -1 | tr -d '[:space:]')
+    remote_version=""
+    while IFS= read -r line; do
+        candidate=$(normalize_mainline_version_id "$line")
+        [ -n "$candidate" ] && remote_version="$candidate"
+    done << EOF_VERSION_BUILDINFO
+$remote_buildinfo
+EOF_VERSION_BUILDINFO
 
-    if [ -z "$remote_hash" ]; then
+    if [ -z "$remote_version" ]; then
         log "远程版本信息格式异常，继续下载"
         return 0
     fi
 
-    log "远程 hash: $remote_hash"
+    log "远程仓库版本: $remote_version"
 
-    if [ "$local_hash" = "$remote_hash" ]; then
+    if [ "$local_version" = "$remote_version" ]; then
         log "已是最新版本，无需升级"
         return 1
     fi
 
-    log "发现新版本 (hash: $local_hash -> $remote_hash)"
+    log "发现新版本 ($local_version -> $remote_version)"
     return 0
 }
 
