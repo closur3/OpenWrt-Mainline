@@ -214,18 +214,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          mapfile -t run_ids < <(
-            gh api --paginate "repos/$REPO/actions/runs?per_page=100" \
-              --jq '.workflow_runs[] | select(.actor.login == "dependabot[bot]") | .id'
-          )
-
-          if [ "${#run_ids[@]}" -eq 0 ]; then
-            echo "::notice::No Dependabot workflow runs found."
-            exit 0
-          fi
-
-          for run_id in "${run_ids[@]}"; do
+          gh run list --repo "$REPO" --user "dependabot[bot]" --limit 100 --json databaseId --jq '.[].databaseId' |
+          while read -r run_id; do
+            [ -n "$run_id" ] || continue
             echo "Deleting Dependabot workflow run: $run_id"
-            gh api -X DELETE "repos/$REPO/actions/runs/$run_id" || \
-              echo "::warning::Failed to delete Dependabot workflow run: $run_id"
+            gh api -X DELETE "repos/$REPO/actions/runs/$run_id"
           done
