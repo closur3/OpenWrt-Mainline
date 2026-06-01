@@ -431,7 +431,6 @@ check_firmware_version() {
 
     if [ "$local_version" = "$remote_version" ]; then
         FIRMWARE_STATUS="same"
-        log "检测到当前容器固件已是 latest release 版本。"
         return 0
     fi
 
@@ -647,7 +646,7 @@ run_upgrade_flow() {
     download_firmware
 
     if [ "$IS_NEW_INSTALL" -eq 0 ] && [ "$FIRMWARE_STATUS" = "same" ] && [ "$FORCE_SAME_VERSION_UPGRADE" -ne 1 ]; then
-        log "固件版本未变化，默认跳过本次升级迁移（避免无意义切换容器）。"
+        log "本地与远程仓库版本一致，默认跳过本次迁移。"
         log "如需强制同版本重装，可使用 --force。"
         exit 0
     fi
