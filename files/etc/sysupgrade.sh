@@ -114,9 +114,17 @@ self_update() {
 
 # ================= 环境检查 =================
 
+is_container() {
+    [ -n "${container:-}" ]
+}
+
 init_environment() {
     [ "$(id -u)" -eq 0 ] || die "请使用 root 权限运行"
     [ -f /etc/openwrt_release ] || die "未检测到 OpenWrt 系统"
+
+    if is_container; then
+        die "检测到容器环境，禁止运行 sysupgrade"
+    fi
 
     for cmd in wget sysupgrade md5sum; do
         require_cmd "$cmd"

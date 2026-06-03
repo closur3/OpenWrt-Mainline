@@ -6,7 +6,7 @@ uci set system.@system[0].zonename='Asia/Shanghai'
 uci commit system
 
 # Sysupgrade
-chmod +x /etc/config/sysupgrade.sh
+chmod +x /etc/sysupgrade.sh
 
 # Diagnostics
 uci set luci.diag.dns='www.qq.com'
