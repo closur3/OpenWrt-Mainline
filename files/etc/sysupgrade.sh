@@ -126,7 +126,7 @@ init_environment() {
         die "检测到容器环境，禁止运行 sysupgrade"
     fi
 
-    for cmd in wget sysupgrade md5sum; do
+    for cmd in wget sysupgrade md5sum timeout; do
         require_cmd "$cmd"
     done
 
@@ -210,15 +210,22 @@ download_firmware() {
     filename=$(basename "$DOWNLOAD_URL")
     local firmware_file="/tmp/${filename}"
     local temp_file="${firmware_file}.tmp"
+    local wget_opts
 
     if [ "$DRY_RUN" -eq 1 ]; then
         log "dry-run: 跳过下载"
         return 0
     fi
 
-    log "正在下载固件..."
+    if [ -t 1 ]; then
+        wget_opts="--tries=2 --timeout=30 --show-progress"
+    else
+        wget_opts="-q --tries=2 --timeout=30"
+    fi
+
+    log "正在下载固件 (超时限制: 120 秒)..."
     rm -f "$temp_file"
-    if wget -q --tries=2 --timeout=30 -O "$temp_file" "$DOWNLOAD_URL"; then
+    if timeout 120 wget $wget_opts -O "$temp_file" "$DOWNLOAD_URL"; then
         if gzip -t "$temp_file" 2>/dev/null; then
             mv -f "$temp_file" "$firmware_file"
             log "下载成功，固件校验通过"
