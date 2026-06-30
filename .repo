@@ -4,7 +4,7 @@ FILTER_RC=true
 
 # PACKAGES
 OpenWrt_URL=https://github.com/openwrt/openwrt
-OpenWrt_TAG=v25.12.4
+OpenWrt_TAG=v25.12.5
 #OpenWrt_FILTER_RC=false
 
 OpenClash_URL=https://github.com/vernesong/OpenClash
