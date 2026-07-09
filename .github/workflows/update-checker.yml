@@ -3,11 +3,11 @@ name: Update Checker
 on:
   push:
     paths:
-      - '.repo'
-      - '.config'
       - 'files/**'
-      - '*.sh'
-      - '!lxc.sh'
+      - '.config'
+      - '.repo'
+      - 'diy-part1.sh'
+      - 'diy-part2.sh'
   schedule:
     - cron: '0 4,12,20 * * *'
   workflow_dispatch:
@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   check:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -137,47 +138,51 @@ jobs:
           repo_path = Path(".repo")
           repo = yaml.load(repo_path)
           packages = tracked_packages(repo)
-          cache_parts = []
-          first_pkg = None
 
-          with Path("sha_results.tmp").open("w", encoding="utf-8") as sha_results:
-              for pkg in packages:
-                  name = pkg["name"]
-                  url = pkg["url"]
-                  tag = pkg["tag"]
-                  prerelease = pkg.get("prerelease", False)
-                  target_tag = tag
+          for pkg in packages:
+              name = pkg["name"]
+              url = pkg["url"]
+              tag = pkg["tag"]
+              old_sha = pkg.get("sha")
+              prerelease = pkg.get("prerelease", False)
+              target_tag = tag
 
-                  if SKIP_TAG_CHECK.match(tag):
-                      print(f"::notice::⏩ {name}: skipping -> {tag}")
+              if SKIP_TAG_CHECK.match(tag):
+                  print(f"::notice::⏩ {name}: skipping -> {tag}")
+              else:
+                  latest = latest_tag(url, prerelease)
+
+                  if latest is None:
+                      print(f"::warning::⚠️ {name}: no tags found at {url}")
+                  elif newer(latest, tag):
+                      pkg["tag"] = latest
+                      target_tag = latest
+                      print(f"::notice::⬆️ {name}: updated -> {latest}")
                   else:
-                      latest = latest_tag(url, prerelease)
+                      print(f"::notice::✅ {name}: up-to-date -> {tag}")
 
-                      if latest is None:
-                          print(f"::warning::⚠️ {name}: no tags found at {url}")
-                      elif newer(latest, tag):
-                          pkg["tag"] = latest
-                          target_tag = latest
-                          print(f"::notice::⬆️ {name}: updated -> {latest}")
-                      else:
-                          print(f"::notice::✅ {name}: up-to-date -> {tag}")
+              sha = resolve_sha(url, target_tag)
+              if not sha:
+                  raise SystemExit(f"{name}: SHA not found for {target_tag}")
 
-                  sha = resolve_sha(url, target_tag)
-                  if not sha:
-                      raise SystemExit(f"{name}: SHA not found for {target_tag}")
+              if old_sha == sha:
+                  print(f"::notice::✅ {name}: identical -> {sha}")
+              elif old_sha:
+                  print(f"::notice::🔄 {name}: changed -> {sha}")
+              else:
+                  print(f"::notice::✨ {name}: added -> {sha}")
 
-                  put_before(pkg, "sha", sha, "prerelease")
-                  normalize_package(pkg)
-                  sha_results.write(f"{name}_SHA={sha}\n")
-                  cache_parts.append(f"{name}-{sha[:8]}")
-                  first_pkg = first_pkg or name
+              put_before(pkg, "sha", sha, "prerelease")
+              normalize_package(pkg)
 
           repo["notes"]["prerelease"] = DoubleQuotedScalarString("Set true to include prerelease tags.")
 
           with repo_path.open("w", encoding="utf-8") as repo_file:
               yaml.dump(repo, repo_file)
 
-          if repo_changed():
+          changed = repo_changed()
+
+          if changed:
               run("git", "config", "--global", "user.name", "github-actions[bot]")
               run("git", "config", "--global", "user.email", "github-actions[bot]@users.noreply.github.com")
               run("git", "add", ".repo")
@@ -185,50 +190,8 @@ jobs:
               run("git", "push")
 
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env:
-              env.write(f"CACHE_KEY={'/'.join(cache_parts)}\n")
-              env.write(f"FIRST_PKG={first_pkg}\n")
+              env.write(f"REPO_CHANGED={str(changed).lower()}\n")
           PYTHON
-
-      - name: Restore Previous SHAs
-        uses: actions/cache/restore@v6
-        id: cache_previous
-        with:
-          path: .commit-shas/
-          key: ${{ env.CACHE_KEY }}
-          restore-keys: ${{ env.FIRST_PKG }}-
-
-      - name: Compare SHAs
-        run: |
-          mkdir -p .commit-shas
-          changes_detected=false
-
-          while IFS='=' read -r pkg current_sha; do
-            sha_file=".commit-shas/.${pkg}CommitSHA"
-
-            if [[ -f "$sha_file" ]]; then
-              previous_sha=$(cat "$sha_file")
-              if [[ "$previous_sha" != "$current_sha" ]]; then
-                echo "::notice::🔄 $pkg: changed -> $current_sha"
-                changes_detected=true
-              else
-                echo "::notice::✅ $pkg: identical -> $current_sha"
-              fi
-            else
-              echo "::notice::✨ $pkg: added -> $current_sha"
-              changes_detected=true
-            fi
-
-            echo "$current_sha" > "$sha_file"
-          done < <(sed 's/_SHA=/=/' sha_results.tmp)
-
-          echo "CHANGES_DETECTED=$changes_detected" >> "$GITHUB_ENV"
-
-      - name: Save Current SHAs
-        if: env.CHANGES_DETECTED == 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: .commit-shas/
-          key: ${{ env.CACHE_KEY }}
 
       - name: Trigger Builder
         run: |
@@ -250,8 +213,8 @@ jobs:
             echo "::notice::🕘 Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
             echo "::notice::🕒 Time diff: $TIME_DIFF days"
 
-            if [[ "$CHANGES_DETECTED" == "true" ]]; then
-              TRIGGER_REASON="changes detected"
+            if [[ "$REPO_CHANGED" == "true" ]]; then
+              TRIGGER_REASON=".repo changed"
             elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
               TRIGGER_REASON="push event"
             elif [[ "$LAST_CONCLUSION" != "success" ]]; then
