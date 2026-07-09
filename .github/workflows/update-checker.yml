@@ -230,7 +230,7 @@ jobs:
           path: .commit-shas/
           key: ${{ env.CACHE_KEY }}
 
-      - name: Trigger Builder If Needed
+      - name: Trigger Builder
         run: |
           REPO="${{ github.repository }}"
           WF_NAME="OpenWrt Builder"
@@ -275,7 +275,7 @@ jobs:
           keep_minimum_runs: 1
           delete_workflow_pattern: update-checker.yml
 
-      - name: Cleanup Dependabot Workflow Runs
+      - name: Cleanup Dependabot Workflows
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
