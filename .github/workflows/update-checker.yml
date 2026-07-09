@@ -3,6 +3,7 @@ name: Update Checker
 on:
   push:
     paths:
+      - '.repo'
       - '.config'
       - 'files/**'
       - '*.sh'
@@ -23,148 +24,186 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check And Update Tags
+      - name: Update Tracked Tags And SHAs
         run: |
-          get_latest_tag() {
-            local remote_url="$1"
-            local filter_rc="$2"
-            local tags
+          ruby <<'RUBY'
+            require "open3"
+            require "yaml"
 
-            tags=$(git ls-remote --tags --refs "$remote_url" \
-              | grep -o 'refs/tags/[vV]*.*' \
-              | sed 's#refs/tags/##')
+            PRERELEASE_PATTERN = /-(rc|alpha|beta|preview)/
+            SKIP_TAG_CHECK = /^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$/
 
-            if [[ "$filter_rc" == "true" ]]; then
-              tags=$(echo "$tags" | grep -Ev '\-(rc|alpha|beta|preview)')
-            fi
+            def command_lines(*args, stdin_data: nil)
+              output, status = Open3.capture2(*args, stdin_data: stdin_data)
+              abort("#{args.join(" ")} failed") unless status.success?
+              output.lines(chomp: true)
+            end
 
-            echo "$tags" \
-              | sed -E 's/-(rc|alpha|beta|preview)/~\1/g' \
-              | sort -V \
-              | sed -E 's/~(rc|alpha|beta|preview)/-\1/g' \
-              | tail -n1
-          }
+            def git_lines(*args)
+              command_lines("git", *args)
+            end
 
-          is_newer() {
-            local latest="$1"
-            local current="$2"
-            local older
-            older=$(printf '%s\n%s' "$latest" "$current" \
-              | sed -E 's/-(rc|alpha|beta|preview)/~\1/g' \
-              | sort -V \
-              | head -1 \
-              | sed -E 's/~(rc|alpha|beta|preview)/-\1/g')
-            [[ "$older" == "$current" && "$latest" != "$current" ]]
-          }
+            def version_key(tag)
+              tag.gsub(PRERELEASE_PATTERN, "~\\1")
+            end
 
-          GLOBAL_FILTER_RC=$(grep "^FILTER_RC=" .repo | cut -d'=' -f2)
-          GLOBAL_FILTER_RC=${GLOBAL_FILTER_RC:-false}
-          commit_details=""
-          update_triggered=false
+            def sort_versions(tags)
+              return [] if tags.empty?
 
-          while IFS='=' read -r url_key remote_url; do
-            pkg=${url_key%_URL}
-            current_tag=$(grep "^${pkg}_TAG=" .repo | cut -d'=' -f2)
-            pkg_filter_rc=$(grep "^${pkg}_FILTER_RC=" .repo | cut -d'=' -f2)
-            filter_rc=${pkg_filter_rc:-$GLOBAL_FILTER_RC}
+              input = tags.map { |tag| version_key(tag) }.join("\n")
+              command_lines("sort", "-V", stdin_data: input)
+                .map { |tag| tag.gsub(/~(rc|alpha|beta|preview)/, "-\\1") }
+            end
 
-            if [[ "$current_tag" =~ ^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$ ]]; then
-              echo "::notice::⏩ $pkg: skipping -> $current_tag"
-              continue
-            fi
+            def latest_tag(url, filter_rc)
+              tags = git_lines("ls-remote", "--tags", "--refs", url)
+                .filter_map { |line| line[/refs\/tags\/(.+)$/, 1] }
+              tags.reject! { |tag| tag.match?(PRERELEASE_PATTERN) } if filter_rc
+              sort_versions(tags).last
+            end
 
-            latest_tag=$(get_latest_tag "$remote_url" "$filter_rc")
+            def newer?(latest, current)
+              sort_versions([latest, current]).first == current && latest != current
+            end
 
-            if [[ -z "$latest_tag" ]]; then
-              echo "::warning::⚠️ $pkg: no tags found at $remote_url"
-              continue
-            fi
+            def resolve_sha(url, ref)
+              [
+                "refs/heads/#{ref}",
+                "refs/tags/#{ref}^{}",
+                "refs/tags/#{ref}"
+              ].each do |pattern|
+                sha = git_lines("ls-remote", url, pattern).first&.split&.first
+                return sha if sha && !sha.empty?
+              end
+              nil
+            end
 
-            if is_newer "$latest_tag" "$current_tag"; then
-              sed -i "s|^${pkg}_TAG=.*|${pkg}_TAG=$latest_tag|" .repo
-              echo "::notice::⬆️ $pkg: updated -> $latest_tag"
-              commit_details="${commit_details:+$commit_details, }$pkg to $latest_tag"
-              update_triggered=true
-            else
-              echo "::notice::✅ $pkg: up-to-date -> $current_tag"
-            fi
-          done < <(grep '_URL=' .repo | grep -v '^#')
+            def ordered_package(pkg)
+              ordered = {
+                "name" => pkg.fetch("name"),
+                "url" => pkg.fetch("url"),
+                "tag" => pkg.fetch("tag")
+              }
+              ordered["sha"] = pkg["sha"] if pkg["sha"]
+              ordered["filter_rc"] = pkg["filter_rc"] if pkg.key?("filter_rc")
+              ordered
+            end
 
-          if [[ "$update_triggered" == "true" ]]; then
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -am "Update: $commit_details"
-            git push
-          fi
+            def tracked_packages(repo)
+              [repo.fetch("source"), *repo.fetch("packages")]
+            end
 
-      - name: Fetch Commit Hashes
-        run: |
-          cache_key=""
-          first_pkg=""
+            def run!(*args)
+              system(*args) || abort("#{args.join(" ")} failed")
+            end
 
-          while IFS='=' read -r url_key remote_url; do
-            [[ "$url_key" =~ ^# || -z "$url_key" ]] && continue
+            def repo_changed?
+              _, status = Open3.capture2("git", "diff", "--quiet", "--", ".repo")
+              return false if status.exitstatus == 0
+              return true if status.exitstatus == 1
 
-            pkg=${url_key%_URL}
-            target_tag=$(grep "^${pkg}_TAG=" .repo | cut -d'=' -f2)
+              abort("git diff --quiet -- .repo failed")
+            end
 
-            latest_hash=$(git ls-remote "$remote_url" "refs/heads/$target_tag" | awk '{print $1}')
-            if [[ -z "$latest_hash" ]]; then
-              latest_hash=$(git ls-remote --tags "$remote_url" "$target_tag" | awk '{print $1}' | head -n1)
-            fi
+            repo = YAML.load_file(".repo")
+            packages = tracked_packages(repo)
+            cache_parts = []
+            first_pkg = nil
 
-            if [[ -n "$latest_hash" ]]; then
-              echo "${pkg}_HASH=$latest_hash" >> hash_results.tmp
-              cache_key="${cache_key:+$cache_key/}${pkg}-${latest_hash:0:8}"
-              [[ -z "$first_pkg" ]] && first_pkg="$pkg"
-            fi
-          done < <(grep '_URL=' .repo)
+            File.open("sha_results.tmp", "w") do |sha_results|
+              packages.each do |pkg|
+                name = pkg.fetch("name")
+                url = pkg.fetch("url")
+                tag = pkg.fetch("tag")
+                filter_rc = pkg.fetch("filter_rc", true)
+                target_tag = tag
 
-          echo "CACHE_KEY=$cache_key" >> "$GITHUB_ENV"
-          echo "FIRST_PKG=$first_pkg" >> "$GITHUB_ENV"
+                if tag.match?(SKIP_TAG_CHECK)
+                  puts "::notice::⏩ #{name}: skipping -> #{tag}"
+                else
+                  latest = latest_tag(url, filter_rc)
 
-      - name: Restore Previous Hashes
+                  if latest.nil?
+                    puts "::warning::⚠️ #{name}: no tags found at #{url}"
+                  elsif newer?(latest, tag)
+                    pkg["tag"] = latest
+                    target_tag = latest
+                    puts "::notice::⬆️ #{name}: updated -> #{latest}"
+                  else
+                    puts "::notice::✅ #{name}: up-to-date -> #{tag}"
+                  end
+                end
+
+                sha = resolve_sha(url, target_tag)
+                abort("#{name}: SHA not found for #{target_tag}") unless sha
+
+                pkg["sha"] = sha
+                sha_results.puts "#{name}_SHA=#{sha}"
+                cache_parts << "#{name}-#{sha[0, 8]}"
+                first_pkg ||= name
+              end
+            end
+
+            repo["source"] = ordered_package(packages.first)
+            repo["packages"] = packages.drop(1).map { |pkg| ordered_package(pkg) }
+            File.write(".repo", YAML.dump(repo).sub(/\A---\n/, ""))
+
+            if repo_changed?
+              run!("git", "config", "--global", "user.name", "github-actions[bot]")
+              run!("git", "config", "--global", "user.email", "github-actions[bot]@users.noreply.github.com")
+              run!("git", "add", ".repo")
+              run!("git", "commit", "-m", "Update .repo")
+              run!("git", "push")
+            end
+
+            File.open(ENV.fetch("GITHUB_ENV"), "a") do |env|
+              env.puts "CACHE_KEY=#{cache_parts.join("/")}"
+              env.puts "FIRST_PKG=#{first_pkg}"
+            end
+          RUBY
+
+      - name: Restore Previous SHAs
         uses: actions/cache/restore@v6
         id: cache_previous
         with:
-          path: .commit-hashes/
+          path: .commit-shas/
           key: ${{ env.CACHE_KEY }}
           restore-keys: ${{ env.FIRST_PKG }}-
 
-      - name: Compare Hashes
+      - name: Compare SHAs
         run: |
-          mkdir -p .commit-hashes
+          mkdir -p .commit-shas
           changes_detected=false
 
-          while IFS='=' read -r pkg current_hash; do
-            hash_file=".commit-hashes/.${pkg}CommitHash"
+          while IFS='=' read -r pkg current_sha; do
+            sha_file=".commit-shas/.${pkg}CommitSHA"
 
-            if [[ -f "$hash_file" ]]; then
-              previous_hash=$(cat "$hash_file")
-              if [[ "$previous_hash" != "$current_hash" ]]; then
-                echo "::notice::🔄 $pkg: changed -> $current_hash"
+            if [[ -f "$sha_file" ]]; then
+              previous_sha=$(cat "$sha_file")
+              if [[ "$previous_sha" != "$current_sha" ]]; then
+                echo "::notice::🔄 $pkg: changed -> $current_sha"
                 changes_detected=true
               else
-                echo "::notice::✅ $pkg: identical -> $current_hash"
+                echo "::notice::✅ $pkg: identical -> $current_sha"
               fi
             else
-              echo "::notice::✨ $pkg: added -> $current_hash"
+              echo "::notice::✨ $pkg: added -> $current_sha"
               changes_detected=true
             fi
 
-            echo "$current_hash" > "$hash_file"
-          done < <(sed 's/_HASH=/=/' hash_results.tmp)
+            echo "$current_sha" > "$sha_file"
+          done < <(sed 's/_SHA=/=/' sha_results.tmp)
 
           echo "CHANGES_DETECTED=$changes_detected" >> "$GITHUB_ENV"
 
-      - name: Save Cache
+      - name: Save Current SHAs
         if: env.CHANGES_DETECTED == 'true'
         uses: actions/cache/save@v6
         with:
-          path: .commit-hashes/
+          path: .commit-shas/
           key: ${{ env.CACHE_KEY }}
 
-      - name: Check Status And Trigger
+      - name: Trigger Builder If Needed
         run: |
           REPO="${{ github.repository }}"
           WF_NAME="OpenWrt Builder"
@@ -184,9 +223,9 @@ jobs:
             echo "::notice::🕘 Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
             echo "::notice::🕒 Time diff: $TIME_DIFF days"
 
-            if [[ "${{ env.CHANGES_DETECTED }}" == "true" ]]; then
+            if [[ "$CHANGES_DETECTED" == "true" ]]; then
               TRIGGER_REASON="changes detected"
-            elif [[ "${{ github.event_name }}" == "push" ]]; then
+            elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
               TRIGGER_REASON="push event"
             elif [[ "$LAST_CONCLUSION" != "success" ]]; then
               TRIGGER_REASON="last build $LAST_CONCLUSION"

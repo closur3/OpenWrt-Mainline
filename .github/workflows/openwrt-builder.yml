@@ -18,6 +18,7 @@ env:
   DIY_P2_SH: diy-part2.sh
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
+  DDNS_DOMAIN: ${{ vars.DDNS_DOMAIN }}
 
 jobs:
   build:
@@ -28,7 +29,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Ultimate Free Disk Space
+      - name: Free Disk Space
         uses: endersonmenezes/free-disk-space@v3
         with:
           remove_android: true
@@ -54,7 +55,7 @@ jobs:
             /var/lib/containerd
           testing: false
 
-      - name: Initialization Environment
+      - name: Prepare Build Environment
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -63,32 +64,30 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
-      - name: Parse .repo File
+      - name: Load Source Metadata
         run: |
-          while IFS='=' read -r config_key config_value; do
-            [[ "$config_key" =~ ^# || -z "$config_key" ]] && continue
-            clean_key=$(echo "$config_key" | xargs)
-            clean_value=$(echo "$config_value" | xargs)
-            [[ -n "$clean_key" ]] && echo "$clean_key=$clean_value" >> "$GITHUB_ENV"
-          done < .repo
+          ruby <<'RUBY' >> "$GITHUB_ENV"
+            require "yaml"
 
-          SYS_PREFIX=$(grep -m1 '_URL=' .repo | sed 's/_URL=.*//' | xargs)
-          echo "SYS_PREFIX=$SYS_PREFIX" >> "$GITHUB_ENV"
+            repo = YAML.load_file(".repo")
+            source = repo.fetch("source")
+            puts "SOURCE_NAME=#{source.fetch("name")}"
+            puts "SOURCE_URL=#{source.fetch("url")}"
+            puts "SOURCE_TAG=#{source.fetch("tag")}"
+          RUBY
 
-      - name: Clone Source Code
+      - name: Clone Tracked Source
         working-directory: /workdir
         run: |
           df -hT $PWD
-          SYS_URL="${SYS_PREFIX}_URL"
-          SYS_TAG="${SYS_PREFIX}_TAG"
-          git clone "${!SYS_URL}" -b "${!SYS_TAG}" openwrt
+          git clone "$SOURCE_URL" -b "$SOURCE_TAG" openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
           COMMIT_HASH=$(git -C "$GITHUB_WORKSPACE" rev-parse --short=7 HEAD)
           FIRMWARE_VERSION_ID="$(date +%y.%m.%d)-${COMMIT_HASH}"
           echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
           echo "FIRMWARE_VERSION_ID=$FIRMWARE_VERSION_ID" >> $GITHUB_ENV
 
-      - name: Cache
+      - name: Restore Build Cache
         uses: klever1988/cachewrtbuild@main
         with:
           ccache: true
@@ -104,6 +103,20 @@ jobs:
       - name: Update And Install Feeds
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
+      - name: Render Repository Variables
+        run: |
+          ruby <<'RUBY'
+            domain = ENV.fetch("DDNS_DOMAIN").strip
+            abort("Repository variable DDNS_DOMAIN is required") if domain.empty?
+            abort("Repository variable DDNS_DOMAIN must be a domain name") unless domain.match?(/\A[a-z0-9.-]+\z/i)
+
+            ddns_rule = "files/etc/mosdns/rule/ddnslist.txt"
+            mosdns_config = "files/etc/config/mosdns"
+
+            File.write(ddns_rule, "#{domain}\n")
+            File.write(mosdns_config, File.read(mosdns_config).gsub("{{DDNS_DOMAIN}}", domain))
+          RUBY
+
       - name: Load Custom Configuration
         run: |
           [ -e files ] && mv files openwrt/files
@@ -116,7 +129,7 @@ jobs:
         uses: P3TERX/ssh2actions@main
         if: github.event.inputs.ssh == 'true'
 
-      - name: Download Package
+      - name: Download Source Packages
         id: package
         run: |
           cd openwrt
@@ -125,7 +138,7 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Compile The Firmware
+      - name: Compile Firmware
         id: compile
         run: |
           cd openwrt
@@ -136,24 +149,23 @@ jobs:
         if: (!cancelled())
         run: df -hT
 
-      - name: Parse Version
+      - name: Prepare Release Metadata
         id: version
         run: |
-          SYS_TAG_VAR="${SYS_PREFIX}_TAG"
-          CURRENT_TAG="${!SYS_TAG_VAR}"
-          PREFIX_LOWER=$(echo "$SYS_PREFIX" | tr '[:upper:]' '[:lower:]')
+          ruby <<'RUBY' >> "$GITHUB_ENV"
+            source_name = ENV.fetch("SOURCE_NAME")
+            source_tag = ENV.fetch("SOURCE_TAG")
+            version = source_tag.sub(/^#{Regexp.escape(source_name)}-/i, "")
+            base_version = version.sub(/-rc[0-9]*/, "")
+            build_date = Time.now.strftime("%Y.%m.%d_%H%M")
 
-          VER_FULL=$(echo "$CURRENT_TAG" | sed -E "s/^${PREFIX_LOWER}-//i")
-          VER_BASE=$(echo "$VER_FULL" | sed 's/-rc[0-9]*//')
-          BUILD_DATE="$(date +"%Y.%m.%d_%H%M")"
-          RELEASE_TAG="${SYS_PREFIX}-${VER_FULL}_${BUILD_DATE}"
+            puts "VER_FULL=#{version}"
+            puts "VER_BASE=#{base_version}"
+            puts "BUILD_DATE=#{build_date}"
+            puts "RELEASE_TAG=#{source_name}-#{version}_#{build_date}"
+          RUBY
 
-          echo "VER_FULL=$VER_FULL"       >> $GITHUB_ENV
-          echo "VER_BASE=$VER_BASE"       >> $GITHUB_ENV
-          echo "BUILD_DATE=$BUILD_DATE"   >> $GITHUB_ENV
-          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
-
-      - name: Organize Files
+      - name: Prepare Firmware Artifacts
         id: organize
         run: |
           cd openwrt/bin/targets/*/*
@@ -182,18 +194,19 @@ jobs:
         shell: bash
         run: |
           REPO="${{ github.repository }}"
-          VER_BASE="${{ env.VER_BASE }}"
-          SYS_PREFIX="${{ env.SYS_PREFIX }}"
-          SYS_PREFIX_ESC=$(printf '%s' "$SYS_PREFIX" | sed 's/[.[\*^$(){}+?|]/\\&/g')
 
           releases=$(gh release list --repo "$REPO" --limit 100 --json tagName,createdAt \
-            | jq -r 'sort_by(.createdAt) | reverse | .[].tagName' \
-            | grep "^${SYS_PREFIX_ESC}-")
+            | jq -r 'sort_by(.createdAt) | reverse | .[].tagName')
 
           declare -A seen
 
           while IFS= read -r tag; do
-            base=$(echo "$tag" | grep -oP "^${SYS_PREFIX_ESC}-\K[^_]+" | sed 's/-rc[0-9]*//')
+            prefix="${SOURCE_NAME}-"
+            [[ "$tag" == "$prefix"* ]] || continue
+
+            version="${tag#$prefix}"
+            base="${version%%_*}"
+            base="${base%%-rc*}"
 
             if [[ "$base" == "$VER_BASE" ]]; then
               limit=2
