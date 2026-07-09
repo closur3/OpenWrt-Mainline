@@ -16,4 +16,4 @@ packages:
     sha: 65060f710fb80c2d8881fa861e780a0bb32524b7
 
 notes:
-  filter_rc: "Set false to include prerelease tags."
+  prerelease: "Set true to include prerelease tags."

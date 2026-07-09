@@ -24,173 +24,170 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Install YAML Round Trip Parser
+        run: python3 -m pip install ruamel.yaml
+
       - name: Update Tracked Tags And SHAs
         run: |
-          ruby <<'RUBY'
-            require "open3"
-            require "yaml"
+          python3 <<'PYTHON'
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
 
-            PRERELEASE_PATTERN = /-(rc|alpha|beta|preview)/
-            SKIP_TAG_CHECK = /^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$/
+          from ruamel.yaml import YAML
+          from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
-            def command_lines(*args, stdin_data: nil)
-              output, status = Open3.capture2(*args, stdin_data: stdin_data)
-              abort("#{args.join(" ")} failed") unless status.success?
-              output.lines(chomp: true)
-            end
+          PRERELEASE_PATTERN = re.compile(r"-(rc|alpha|beta|preview)")
+          SKIP_TAG_CHECK = re.compile(r"^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$")
 
-            def git_lines(*args)
-              command_lines("git", *args)
-            end
+          def command_lines(*args, stdin=None):
+              result = subprocess.run(
+                  args,
+                  input=stdin,
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+                  check=False,
+              )
+              if result.returncode != 0:
+                  sys.stderr.write(result.stderr)
+                  raise SystemExit(f"{' '.join(args)} failed")
+              return result.stdout.splitlines()
 
-            def version_key(tag)
-              tag.gsub(PRERELEASE_PATTERN, "~\\1")
-            end
+          def git_lines(*args):
+              return command_lines("git", *args)
 
-            def sort_versions(tags)
-              return [] if tags.empty?
+          def version_key(tag):
+              return PRERELEASE_PATTERN.sub(r"~\1", tag)
 
-              input = tags.map { |tag| version_key(tag) }.join("\n")
-              command_lines("sort", "-V", stdin_data: input)
-                .map { |tag| tag.gsub(/~(rc|alpha|beta|preview)/, "-\\1") }
-            end
+          def sort_versions(tags):
+              if not tags:
+                  return []
 
-            def latest_tag(url, filter_rc)
-              tags = git_lines("ls-remote", "--tags", "--refs", url)
-                .filter_map { |line| line[/refs\/tags\/(.+)$/, 1] }
-              tags.reject! { |tag| tag.match?(PRERELEASE_PATTERN) } if filter_rc
-              sort_versions(tags).last
-            end
-
-            def newer?(latest, current)
-              sort_versions([latest, current]).first == current && latest != current
-            end
-
-            def resolve_sha(url, ref)
-              [
-                "refs/heads/#{ref}",
-                "refs/tags/#{ref}^{}",
-                "refs/tags/#{ref}"
-              ].each do |pattern|
-                sha = git_lines("ls-remote", url, pattern).first&.split&.first
-                return sha if sha && !sha.empty?
-              end
-              nil
-            end
-
-            def ordered_package(pkg)
-              ordered = {
-                "name" => pkg.fetch("name"),
-                "url" => pkg.fetch("url"),
-                "tag" => pkg.fetch("tag")
-              }
-              ordered["sha"] = pkg["sha"] if pkg["sha"]
-              ordered["filter_rc"] = pkg["filter_rc"] if pkg.key?("filter_rc")
-              ordered
-            end
-
-            def package_lines(pkg, indent:, list_item: false)
-              name_prefix = list_item ? "#{indent}- " : indent
-              field_prefix = list_item ? "#{indent}  " : indent
-              lines = [
-                "#{name_prefix}name: #{pkg.fetch("name")}",
-                "#{field_prefix}url: #{pkg.fetch("url")}",
-                "#{field_prefix}tag: #{pkg.fetch("tag")}"
+              stdin = "\n".join(version_key(tag) for tag in tags) + "\n"
+              return [
+                  re.sub(r"~(rc|alpha|beta|preview)", r"-\1", tag)
+                  for tag in command_lines("sort", "-V", stdin=stdin)
               ]
-              lines << "#{field_prefix}sha: #{pkg.fetch("sha")}" if pkg["sha"]
-              lines << "#{field_prefix}filter_rc: #{pkg.fetch("filter_rc")}" if pkg.key?("filter_rc")
-              lines
-            end
 
-            def dump_repo(repo)
-              lines = ["source:"]
-              lines.concat(package_lines(repo.fetch("source"), indent: "  "))
-              lines << ""
-              lines << "packages:"
+          def latest_tag(url, prerelease):
+              tags = [
+                  match.group(1)
+                  for line in git_lines("ls-remote", "--tags", "--refs", url)
+                  if (match := re.search(r"refs/tags/(.+)$", line))
+              ]
+              if not prerelease:
+                  tags = [tag for tag in tags if not PRERELEASE_PATTERN.search(tag)]
+              sorted_tags = sort_versions(tags)
+              return sorted_tags[-1] if sorted_tags else None
 
-              repo.fetch("packages").each_with_index do |pkg, index|
-                lines << "" if index.positive?
-                lines.concat(package_lines(pkg, indent: "  ", list_item: true))
-              end
+          def newer(latest, current):
+              return sort_versions([latest, current])[0] == current and latest != current
 
-              lines << ""
-              lines << "notes:"
-              lines << "  filter_rc: \"Set false to include prerelease tags.\""
-              lines.join("\n") + "\n"
-            end
+          def resolve_sha(url, ref):
+              for pattern in (f"refs/heads/{ref}", f"refs/tags/{ref}^{{}}", f"refs/tags/{ref}"):
+                  lines = git_lines("ls-remote", url, pattern)
+                  if lines:
+                      sha = lines[0].split()[0]
+                      if sha:
+                          return sha
+              return None
 
-            def tracked_packages(repo)
-              [repo.fetch("source"), *repo.fetch("packages")]
-            end
+          def tracked_packages(repo):
+              return [repo["source"], *repo["packages"]]
 
-            def run!(*args)
-              system(*args) || abort("#{args.join(" ")} failed")
-            end
+          def put_before(pkg, key, value, before):
+              if key in pkg:
+                  pkg[key] = value
+              elif before in pkg:
+                  pkg.insert(list(pkg).index(before), key, value)
+              else:
+                  pkg[key] = value
 
-            def repo_changed?
-              _, status = Open3.capture2("git", "diff", "--quiet", "--", ".repo")
-              return false if status.exitstatus == 0
-              return true if status.exitstatus == 1
+          def normalize_package(pkg):
+              ordered_keys = ("name", "url", "tag", "sha", "prerelease")
+              existing = {key: pkg[key] for key in pkg}
+              pkg.clear()
 
-              abort("git diff --quiet -- .repo failed")
-            end
+              for key in ordered_keys:
+                  if key in existing:
+                      pkg[key] = existing.pop(key)
 
-            repo = YAML.load_file(".repo")
-            packages = tracked_packages(repo)
-            cache_parts = []
-            first_pkg = nil
+              for key, value in existing.items():
+                  pkg[key] = value
 
-            File.open("sha_results.tmp", "w") do |sha_results|
-              packages.each do |pkg|
-                name = pkg.fetch("name")
-                url = pkg.fetch("url")
-                tag = pkg.fetch("tag")
-                filter_rc = pkg.fetch("filter_rc", true)
-                target_tag = tag
+          def run(*args):
+              subprocess.run(args, check=True)
 
-                if tag.match?(SKIP_TAG_CHECK)
-                  puts "::notice::⏩ #{name}: skipping -> #{tag}"
-                else
-                  latest = latest_tag(url, filter_rc)
+          def repo_changed():
+              result = subprocess.run(["git", "diff", "--quiet", "--", ".repo"], check=False)
+              if result.returncode == 0:
+                  return False
+              if result.returncode == 1:
+                  return True
+              raise SystemExit("git diff --quiet -- .repo failed")
 
-                  if latest.nil?
-                    puts "::warning::⚠️ #{name}: no tags found at #{url}"
-                  elsif newer?(latest, tag)
-                    pkg["tag"] = latest
-                    target_tag = latest
-                    puts "::notice::⬆️ #{name}: updated -> #{latest}"
-                  else
-                    puts "::notice::✅ #{name}: up-to-date -> #{tag}"
-                  end
-                end
+          yaml = YAML()
+          yaml.preserve_quotes = True
+          yaml.indent(mapping=2, sequence=4, offset=2)
+          yaml.width = 4096
 
-                sha = resolve_sha(url, target_tag)
-                abort("#{name}: SHA not found for #{target_tag}") unless sha
+          repo_path = Path(".repo")
+          repo = yaml.load(repo_path)
+          packages = tracked_packages(repo)
+          cache_parts = []
+          first_pkg = None
 
-                pkg["sha"] = sha
-                sha_results.puts "#{name}_SHA=#{sha}"
-                cache_parts << "#{name}-#{sha[0, 8]}"
-                first_pkg ||= name
-              end
-            end
+          with Path("sha_results.tmp").open("w", encoding="utf-8") as sha_results:
+              for pkg in packages:
+                  name = pkg["name"]
+                  url = pkg["url"]
+                  tag = pkg["tag"]
+                  prerelease = pkg.get("prerelease", False)
+                  target_tag = tag
 
-            repo["source"] = ordered_package(packages.first)
-            repo["packages"] = packages.drop(1).map { |pkg| ordered_package(pkg) }
-            File.write(".repo", dump_repo(repo))
+                  if SKIP_TAG_CHECK.match(tag):
+                      print(f"::notice::⏩ {name}: skipping -> {tag}")
+                  else:
+                      latest = latest_tag(url, prerelease)
 
-            if repo_changed?
-              run!("git", "config", "--global", "user.name", "github-actions[bot]")
-              run!("git", "config", "--global", "user.email", "github-actions[bot]@users.noreply.github.com")
-              run!("git", "add", ".repo")
-              run!("git", "commit", "-m", "Update .repo")
-              run!("git", "push")
-            end
+                      if latest is None:
+                          print(f"::warning::⚠️ {name}: no tags found at {url}")
+                      elif newer(latest, tag):
+                          pkg["tag"] = latest
+                          target_tag = latest
+                          print(f"::notice::⬆️ {name}: updated -> {latest}")
+                      else:
+                          print(f"::notice::✅ {name}: up-to-date -> {tag}")
 
-            File.open(ENV.fetch("GITHUB_ENV"), "a") do |env|
-              env.puts "CACHE_KEY=#{cache_parts.join("/")}"
-              env.puts "FIRST_PKG=#{first_pkg}"
-            end
-          RUBY
+                  sha = resolve_sha(url, target_tag)
+                  if not sha:
+                      raise SystemExit(f"{name}: SHA not found for {target_tag}")
+
+                  put_before(pkg, "sha", sha, "prerelease")
+                  normalize_package(pkg)
+                  sha_results.write(f"{name}_SHA={sha}\n")
+                  cache_parts.append(f"{name}-{sha[:8]}")
+                  first_pkg = first_pkg or name
+
+          repo["notes"]["prerelease"] = DoubleQuotedScalarString("Set true to include prerelease tags.")
+
+          with repo_path.open("w", encoding="utf-8") as repo_file:
+              yaml.dump(repo, repo_file)
+
+          if repo_changed():
+              run("git", "config", "--global", "user.name", "github-actions[bot]")
+              run("git", "config", "--global", "user.email", "github-actions[bot]@users.noreply.github.com")
+              run("git", "add", ".repo")
+              run("git", "commit", "-m", "Update .repo")
+              run("git", "push")
+
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env:
+              env.write(f"CACHE_KEY={'/'.join(cache_parts)}\n")
+              env.write(f"FIRST_PKG={first_pkg}\n")
+          PYTHON
 
       - name: Restore Previous SHAs
         uses: actions/cache/restore@v6
