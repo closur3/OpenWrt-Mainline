@@ -89,6 +89,36 @@ jobs:
               ordered
             end
 
+            def package_lines(pkg, indent:, list_item: false)
+              name_prefix = list_item ? "#{indent}- " : indent
+              field_prefix = list_item ? "#{indent}  " : indent
+              lines = [
+                "#{name_prefix}name: #{pkg.fetch("name")}",
+                "#{field_prefix}url: #{pkg.fetch("url")}",
+                "#{field_prefix}tag: #{pkg.fetch("tag")}"
+              ]
+              lines << "#{field_prefix}sha: #{pkg.fetch("sha")}" if pkg["sha"]
+              lines << "#{field_prefix}filter_rc: #{pkg.fetch("filter_rc")}" if pkg.key?("filter_rc")
+              lines
+            end
+
+            def dump_repo(repo)
+              lines = ["source:"]
+              lines.concat(package_lines(repo.fetch("source"), indent: "  "))
+              lines << ""
+              lines << "packages:"
+
+              repo.fetch("packages").each_with_index do |pkg, index|
+                lines << "" if index.positive?
+                lines.concat(package_lines(pkg, indent: "  ", list_item: true))
+              end
+
+              lines << ""
+              lines << "notes:"
+              lines << "  filter_rc: \"Set false to include prerelease tags.\""
+              lines.join("\n") + "\n"
+            end
+
             def tracked_packages(repo)
               [repo.fetch("source"), *repo.fetch("packages")]
             end
@@ -146,7 +176,7 @@ jobs:
 
             repo["source"] = ordered_package(packages.first)
             repo["packages"] = packages.drop(1).map { |pkg| ordered_package(pkg) }
-            File.write(".repo", YAML.dump(repo).sub(/\A---\n/, ""))
+            File.write(".repo", dump_repo(repo))
 
             if repo_changed?
               run!("git", "config", "--global", "user.name", "github-actions[bot]")
