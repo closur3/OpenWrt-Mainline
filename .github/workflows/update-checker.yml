@@ -6,8 +6,7 @@ on:
       - 'files/**'
       - '.config'
       - '.repo'
-      - 'diy-part1.sh'
-      - 'diy-part2.sh'
+      - 'diy-part*.sh'
   schedule:
     - cron: '0 4,12,20 * * *'
   workflow_dispatch:
