@@ -2,6 +2,8 @@ name: Update Checker
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'files/**'
       - '.config'
@@ -11,26 +13,29 @@ on:
     - cron: '0 4,12,20 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: update-checker-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   actions: write
   contents: write
 
 jobs:
   check:
-    if: github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install YAML Round Trip Parser
-        run: python3 -m pip install ruamel.yaml
+        run: python3 -m pip install 'ruamel.yaml==0.19.1'
 
       - name: Update Tracked Tags And SHAs
         run: |
           python3 <<'PYTHON'
-          import os
           import re
           import subprocess
           import sys
@@ -118,17 +123,6 @@ jobs:
               for key, value in existing.items():
                   pkg[key] = value
 
-          def run(*args):
-              subprocess.run(args, check=True)
-
-          def repo_changed():
-              result = subprocess.run(["git", "diff", "--quiet", "--", ".repo"], check=False)
-              if result.returncode == 0:
-                  return False
-              if result.returncode == 1:
-                  return True
-              raise SystemExit("git diff --quiet -- .repo failed")
-
           yaml = YAML()
           yaml.preserve_quotes = True
           yaml.indent(mapping=2, sequence=4, offset=2)
@@ -179,21 +173,39 @@ jobs:
           with repo_path.open("w", encoding="utf-8") as repo_file:
               yaml.dump(repo, repo_file)
 
-          changed = repo_changed()
-
-          if changed:
-              run("git", "config", "--global", "user.name", "github-actions[bot]")
-              run("git", "config", "--global", "user.email", "github-actions[bot]@users.noreply.github.com")
-              run("git", "add", ".repo")
-              run("git", "commit", "-m", "Update .repo")
-              run("git", "push")
-
-          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env:
-              env.write(f"REPO_CHANGED={str(changed).lower()}\n")
           PYTHON
 
-      - name: Trigger Builder
+      - name: Commit Repository Metadata
+        id: metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
+          if git diff --quiet -- .repo; then
+            changed=false
+          else
+            git config --local user.name "github-actions[bot]"
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git add .repo
+            git commit -m "Update .repo"
+
+            auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+              push origin HEAD:refs/heads/main
+            changed=true
+          fi
+
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "config_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Builder
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_CHANGED: ${{ steps.metadata.outputs.changed }}
+          CONFIG_SHA: ${{ steps.metadata.outputs.config_sha }}
+        run: |
+          set -euo pipefail
           REPO="${{ github.repository }}"
           WF_NAME="OpenWrt Builder"
 
@@ -227,7 +239,9 @@ jobs:
           echo "::notice::🖥️ Trigger: ${TRIGGER_REASON:-none}"
 
           if [[ -n "$TRIGGER_REASON" ]]; then
-            gh api -X POST "repos/$REPO/dispatches" -F "event_type=$WF_NAME"
+            gh api -X POST "repos/$REPO/dispatches" \
+              -f "event_type=$WF_NAME" \
+              -f "client_payload[config_sha]=$CONFIG_SHA"
           fi
 
       - name: Cleanup Expired Workflows
@@ -242,6 +256,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           gh run list --repo "$REPO" --user "dependabot[bot]" --limit 100 --json databaseId --jq '.[].databaseId' |
           while read -r run_id; do
             [ -n "$run_id" ] || continue

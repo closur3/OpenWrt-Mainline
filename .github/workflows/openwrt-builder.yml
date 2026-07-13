@@ -11,6 +11,14 @@ on:
         required: false
         default: false
 
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: openwrt-builder
+  cancel-in-progress: false
+
 env:
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
@@ -23,11 +31,24 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.client_payload.config_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify Configuration Revision
+        if: github.event_name == 'repository_dispatch'
+        env:
+          EXPECTED_SHA: ${{ github.event.client_payload.config_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Invalid configuration commit: $EXPECTED_SHA" >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
 
       - name: Free Disk Space
         uses: endersonmenezes/free-disk-space@v3
@@ -59,10 +80,14 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo bash -c 'bash <(curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh)'
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 \
+            --output /tmp/init_build_environment.sh \
+            https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh
+          sudo bash /tmp/init_build_environment.sh
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
-          sudo chown $USER:$GROUPS /workdir
+          sudo chown "$USER:$(id -gn)" /workdir
 
       - name: Load Source Metadata
         run: |
@@ -79,26 +104,28 @@ jobs:
       - name: Clone Tracked Source
         working-directory: /workdir
         run: |
-          df -hT $PWD
-          git clone "$SOURCE_URL" -b "$SOURCE_TAG" openwrt
-          ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+          set -euo pipefail
+          df -hT "$PWD"
+          git clone --depth 1 --single-branch --branch "$SOURCE_TAG" "$SOURCE_URL" openwrt
+          ln -s /workdir/openwrt "$GITHUB_WORKSPACE/openwrt"
           COMMIT_HASH=$(git -C "$GITHUB_WORKSPACE" rev-parse --short=7 HEAD)
           FIRMWARE_VERSION_ID="$(date +%y.%m.%d)-${COMMIT_HASH}"
-          echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
-          echo "FIRMWARE_VERSION_ID=$FIRMWARE_VERSION_ID" >> $GITHUB_ENV
+          echo "COMMIT_HASH=$COMMIT_HASH" >> "$GITHUB_ENV"
+          echo "FIRMWARE_VERSION_ID=$FIRMWARE_VERSION_ID" >> "$GITHUB_ENV"
 
       - name: Restore Build Cache
-        uses: klever1988/cachewrtbuild@main
+        uses: stupidloud/cachewrtbuild@main
         with:
           ccache: true
           prefix: ${{ github.workspace }}/openwrt
 
       - name: Load Custom Feeds
         run: |
-          [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-          chmod +x $DIY_P1_SH
+          set -euo pipefail
+          [ -e "$FEEDS_CONF" ] && mv "$FEEDS_CONF" openwrt/feeds.conf.default
+          chmod +x "$DIY_P1_SH"
           cd openwrt
-          $GITHUB_WORKSPACE/$DIY_P1_SH
+          "$GITHUB_WORKSPACE/$DIY_P1_SH"
 
       - name: Update And Install Feeds
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
@@ -119,14 +146,15 @@ jobs:
 
       - name: Load Custom Configuration
         run: |
+          set -euo pipefail
           [ -e files ] && mv files openwrt/files
-          [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-          chmod +x $DIY_P2_SH
+          [ -e "$CONFIG_FILE" ] && mv "$CONFIG_FILE" openwrt/.config
+          chmod +x "$DIY_P2_SH"
           cd openwrt
-          $GITHUB_WORKSPACE/$DIY_P2_SH
+          "$GITHUB_WORKSPACE/$DIY_P2_SH"
 
       - name: SSH Connection To Actions
-        uses: P3TERX/ssh2actions@main
+        uses: P3TERX/ssh2actions@v1.0.0
         if: github.event.inputs.ssh == 'true'
 
       - name: Download Source Packages
@@ -142,8 +170,8 @@ jobs:
         id: compile
         run: |
           cd openwrt
-          echo -e "$(nproc) thread compile"
-          make -j$(nproc) || make -j1 || make -j1 V=s
+          echo "$(nproc) thread compile"
+          make -j"$(nproc)" || make -j1 || make -j1 V=s
 
       - name: Check Space Usage
         if: (!cancelled())
@@ -177,6 +205,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         if: steps.organize.outcome == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.FIRMWARE }}/*
 
