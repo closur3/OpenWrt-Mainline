@@ -40,3 +40,7 @@ uci commit dhcp
 uci add_list firewall.@zone[0].network='dhcp'
 uci add_list firewall.@zone[0].network='dhcp6'
 uci commit firewall
+
+# OpenClash
+uci set openclash.config.core_version='linux-amd64-v2'
+uci commit openclash

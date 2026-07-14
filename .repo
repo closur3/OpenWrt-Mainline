@@ -1,19 +1,27 @@
 source:
-  name: OpenWrt
-  url: https://github.com/openwrt/openwrt
-  tag: v25.12.5
-  sha: f0a60eee2fe051741c643ea6118718aae1ef17fb
+  OpenWrt:
+    url: https://github.com/openwrt/openwrt
+    tag: v25.12.5
+    commit: f0a60eee2fe051741c643ea6118718aae1ef17fb
 
 packages:
-  - name: OpenClash
+  OpenClash:
     url: https://github.com/vernesong/OpenClash
     tag: v0.47.116
-    sha: 23896d2662a7d49fa870d37c5cda4b3247a35ae4
+    commit: 23896d2662a7d49fa870d37c5cda4b3247a35ae4
+    destination: package/openclash
 
-  - name: MosDNS
+  MosDNS:
     url: https://github.com/sbwml/luci-app-mosdns
     tag: v5.3.4-r5
-    sha: 65060f710fb80c2d8881fa861e780a0bb32524b7
+    commit: 65060f710fb80c2d8881fa861e780a0bb32524b7
+    destination: package/mosdns
 
-notes:
-  prerelease: "Set true to include prerelease tags."
+files:
+  OpenClash Core:
+    url: https://github.com/vernesong/OpenClash
+    branch: core
+    commit: 2512856ee7a3478a94c890bd7431e0695023a03a
+    path: master/meta/clash-linux-amd64-v2.tar.gz
+    archive_member: clash
+    destination: package/openclash/luci-app-openclash/root/etc/openclash/core/clash_meta

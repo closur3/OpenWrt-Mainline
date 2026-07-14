@@ -30,157 +30,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install YAML Round Trip Parser
+      - name: Install Repository Input Parser
         run: python3 -m pip install 'ruamel.yaml==0.19.1'
 
-      - name: Update Tracked Tags And SHAs
-        run: |
-          python3 <<'PYTHON'
-          import re
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          from ruamel.yaml import YAML
-          from ruamel.yaml.scalarstring import DoubleQuotedScalarString
-
-          PRERELEASE_PATTERN = re.compile(r"-(rc|alpha|beta|preview)")
-          SKIP_TAG_CHECK = re.compile(r"^(main|master|dev|snapshot|openwrt-[0-9.]+.*)$")
-
-          def command_lines(*args, stdin=None):
-              result = subprocess.run(
-                  args,
-                  input=stdin,
-                  text=True,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.PIPE,
-                  check=False,
-              )
-              if result.returncode != 0:
-                  sys.stderr.write(result.stderr)
-                  raise SystemExit(f"{' '.join(args)} failed")
-              return result.stdout.splitlines()
-
-          def git_lines(*args):
-              return command_lines("git", *args)
-
-          def version_key(tag):
-              return PRERELEASE_PATTERN.sub(r"~\1", tag)
-
-          def sort_versions(tags):
-              if not tags:
-                  return []
-
-              stdin = "\n".join(version_key(tag) for tag in tags) + "\n"
-              return [
-                  re.sub(r"~(rc|alpha|beta|preview)", r"-\1", tag)
-                  for tag in command_lines("sort", "-V", stdin=stdin)
-              ]
-
-          def latest_tag(url, prerelease):
-              tags = [
-                  match.group(1)
-                  for line in git_lines("ls-remote", "--tags", "--refs", url)
-                  if (match := re.search(r"refs/tags/(.+)$", line))
-              ]
-              if not prerelease:
-                  tags = [tag for tag in tags if not PRERELEASE_PATTERN.search(tag)]
-              sorted_tags = sort_versions(tags)
-              return sorted_tags[-1] if sorted_tags else None
-
-          def newer(latest, current):
-              return sort_versions([latest, current])[0] == current and latest != current
-
-          def resolve_sha(url, ref):
-              for pattern in (f"refs/heads/{ref}", f"refs/tags/{ref}^{{}}", f"refs/tags/{ref}"):
-                  lines = git_lines("ls-remote", url, pattern)
-                  if lines:
-                      sha = lines[0].split()[0]
-                      if sha:
-                          return sha
-              return None
-
-          def tracked_packages(repo):
-              return [repo["source"], *repo["packages"]]
-
-          def put_before(pkg, key, value, before):
-              if key in pkg:
-                  pkg[key] = value
-              elif before in pkg:
-                  pkg.insert(list(pkg).index(before), key, value)
-              else:
-                  pkg[key] = value
-
-          def normalize_package(pkg):
-              ordered_keys = ("name", "url", "tag", "sha", "prerelease")
-              existing = {key: pkg[key] for key in pkg}
-              pkg.clear()
-
-              for key in ordered_keys:
-                  if key in existing:
-                      pkg[key] = existing.pop(key)
-
-              for key, value in existing.items():
-                  pkg[key] = value
-
-          yaml = YAML()
-          yaml.preserve_quotes = True
-          yaml.indent(mapping=2, sequence=4, offset=2)
-          yaml.width = 4096
-
-          repo_path = Path(".repo")
-          repo = yaml.load(repo_path)
-          packages = tracked_packages(repo)
-
-          for pkg in packages:
-              name = pkg["name"]
-              url = pkg["url"]
-              tag = pkg["tag"]
-              old_sha = pkg.get("sha")
-              prerelease = pkg.get("prerelease", False)
-              target_tag = tag
-
-              if SKIP_TAG_CHECK.match(tag):
-                  print(f"::notice::⏩ {name}: skipping -> {tag}")
-              else:
-                  latest = latest_tag(url, prerelease)
-
-                  if latest is None:
-                      print(f"::warning::⚠️ {name}: no tags found at {url}")
-                  elif newer(latest, tag):
-                      pkg["tag"] = latest
-                      target_tag = latest
-                      print(f"::notice::⬆️ {name}: updated -> {latest}")
-                  else:
-                      print(f"::notice::✅ {name}: up-to-date -> {tag}")
-
-              sha = resolve_sha(url, target_tag)
-              if not sha:
-                  raise SystemExit(f"{name}: SHA not found for {target_tag}")
-
-              if old_sha == sha:
-                  print(f"::notice::✅ {name}: identical -> {sha}")
-              elif old_sha:
-                  print(f"::notice::🔄 {name}: changed -> {sha}")
-              else:
-                  print(f"::notice::✨ {name}: added -> {sha}")
-
-              put_before(pkg, "sha", sha, "prerelease")
-              normalize_package(pkg)
-
-          repo["notes"]["prerelease"] = DoubleQuotedScalarString("Set true to include prerelease tags.")
-
-          with repo_path.open("w", encoding="utf-8") as repo_file:
-              yaml.dump(repo, repo_file)
-
-          PYTHON
+      - name: Update Tracked Inputs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/repository-inputs.py update
 
       - name: Commit Repository Metadata
         id: metadata
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
 
           if git diff --quiet -- .repo; then
             changed=false
@@ -197,51 +59,41 @@ jobs:
           fi
 
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          echo "config_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "config_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Trigger Builder
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_CHANGED: ${{ steps.metadata.outputs.changed }}
-          CONFIG_SHA: ${{ steps.metadata.outputs.config_sha }}
+          CONFIG_COMMIT: ${{ steps.metadata.outputs.config_commit }}
         run: |
-          set -euo pipefail
           REPO="${{ github.repository }}"
           WF_NAME="OpenWrt Builder"
 
           WF_ID=$(gh api "repos/$REPO/actions/workflows" \
             --jq ".workflows[] | select(.name==\"$WF_NAME\") | .id")
 
-          RUN_DATA=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=1" \
-            --jq '.workflow_runs[0]')
-          LAST_CONCLUSION=$(echo "$RUN_DATA" | jq -r '.conclusion')
-          LAST_RUN_TIME=$(echo "$RUN_DATA"   | jq -r '.updated_at')
+          LAST_CONCLUSION=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=1" --jq '.workflow_runs[0].conclusion // "none"')
 
           TRIGGER_REASON=""
 
-          if [[ "$LAST_RUN_TIME" != "null" ]]; then
-            TIME_DIFF=$(( ( $(date +%s) - $(date -d "$LAST_RUN_TIME" +%s) ) / 86400 ))
-            echo "::notice::🕘 Last build: $(TZ="Asia/Shanghai" date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
-            echo "::notice::🕒 Time diff: $TIME_DIFF days"
-
-            if [[ "$REPO_CHANGED" == "true" ]]; then
-              TRIGGER_REASON=".repo changed"
-            elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-              TRIGGER_REASON="push event"
-            elif [[ "$LAST_CONCLUSION" != "success" ]]; then
-              TRIGGER_REASON="last build $LAST_CONCLUSION"
-            fi
-          else
-            echo "::notice::🕘 Last build: null"
+          if [[ "$REPO_CHANGED" == "true" ]]; then
+            TRIGGER_REASON=".repo changed"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            TRIGGER_REASON="push event"
+          elif [[ "$LAST_CONCLUSION" == "none" ]]; then
             TRIGGER_REASON="no previous build"
+          elif [[ "$LAST_CONCLUSION" != "success" ]]; then
+            TRIGGER_REASON="last build $LAST_CONCLUSION"
           fi
 
+          echo "::notice::🖥️ Last conclusion: $LAST_CONCLUSION"
           echo "::notice::🖥️ Trigger: ${TRIGGER_REASON:-none}"
 
           if [[ -n "$TRIGGER_REASON" ]]; then
             gh api -X POST "repos/$REPO/dispatches" \
               -f "event_type=$WF_NAME" \
-              -f "client_payload[config_sha]=$CONFIG_SHA"
+              -f "client_payload[config_commit]=$CONFIG_COMMIT"
           fi
 
       - name: Cleanup Expired Workflows
@@ -256,7 +108,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          set -euo pipefail
           gh run list --repo "$REPO" --user "dependabot[bot]" --limit 100 --json databaseId --jq '.[].databaseId' |
           while read -r run_id; do
             [ -n "$run_id" ] || continue

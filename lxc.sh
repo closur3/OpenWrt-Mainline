@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 export LC_ALL=C
 
 ###############################################################################
@@ -113,10 +112,8 @@ EOF
 
 load_user_config() {
     [ -f "$CONFIG_FILE" ] || return 0
-    set +u
     # shellcheck disable=SC1090
     source "$CONFIG_FILE"
-    set -u
 }
 
 rollback() {
@@ -234,9 +231,7 @@ self_update() {
 }
 
 find_target_container() {
-    set +e +o pipefail
     local pct_output=$(pct list 2>&1)
-    set -e -o pipefail
 
     local existing_vmids=$(echo "$pct_output" | awk -v container="$config_hostname" 'NR>1 && ($3 == container || $4 == container) {print $1}' || true)
     local container_count=0
@@ -302,11 +297,9 @@ prepare_container_config() {
 }
 
 allocate_new_vmid() {
-    set +e +o pipefail
     local lxc_vmids=($(pct list | awk 'NR>1 {print $1}' || true))
     local kvm_vmids=($(qm list 2>/dev/null | awk 'NR>1 {print $1}' || true))
     local all_vmids=($(printf "%s\n" "${lxc_vmids[@]:-}" "${kvm_vmids[@]:-}" | sort -n | uniq || true))
-    set -e -o pipefail
 
     local seg_min=$((vmid_min / 100))
     local seg_max=$((vmid_max / 100))

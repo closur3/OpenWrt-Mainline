@@ -35,20 +35,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.client_payload.config_sha || github.sha }}
+          ref: ${{ github.event.client_payload.config_commit || github.sha }}
           persist-credentials: false
 
       - name: Verify Configuration Revision
         if: github.event_name == 'repository_dispatch'
         env:
-          EXPECTED_SHA: ${{ github.event.client_payload.config_sha }}
+          EXPECTED_COMMIT: ${{ github.event.client_payload.config_commit }}
         run: |
-          set -euo pipefail
-          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "Invalid configuration commit: $EXPECTED_SHA" >&2
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Invalid configuration commit: $EXPECTED_COMMIT" >&2
             exit 1
           }
-          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_COMMIT" ]]
 
       - name: Free Disk Space
         uses: endersonmenezes/free-disk-space@v3
@@ -80,7 +79,6 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          set -euo pipefail
           curl --fail --silent --show-error --location --retry 3 \
             --output /tmp/init_build_environment.sh \
             https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh
@@ -89,24 +87,22 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown "$USER:$(id -gn)" /workdir
 
-      - name: Load Source Metadata
-        run: |
-          ruby <<'RUBY' >> "$GITHUB_ENV"
-            require "yaml"
+      - name: Install Repository Input Parser
+        run: python3 -m pip install 'ruamel.yaml==0.19.1'
 
-            repo = YAML.load_file(".repo")
-            source = repo.fetch("source")
-            puts "SOURCE_NAME=#{source.fetch("name")}"
-            puts "SOURCE_URL=#{source.fetch("url")}"
-            puts "SOURCE_TAG=#{source.fetch("tag")}"
-          RUBY
+      - name: Load Repository Metadata
+        run: python3 .github/scripts/repository-inputs.py github-env source >> "$GITHUB_ENV"
 
       - name: Clone Tracked Source
         working-directory: /workdir
         run: |
-          set -euo pipefail
           df -hT "$PWD"
-          git clone --depth 1 --single-branch --branch "$SOURCE_TAG" "$SOURCE_URL" openwrt
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git init -q openwrt
+          git -C openwrt remote add origin "$SOURCE_URL"
+          git -C openwrt fetch --depth=1 origin "$SOURCE_COMMIT"
+          git -C openwrt -c advice.detachedHead=false checkout --detach FETCH_HEAD
+          [[ "$(git -C openwrt rev-parse HEAD)" == "$SOURCE_COMMIT" ]]
           ln -s /workdir/openwrt "$GITHUB_WORKSPACE/openwrt"
           COMMIT_HASH=$(git -C "$GITHUB_WORKSPACE" rev-parse --short=7 HEAD)
           FIRMWARE_VERSION_ID="$(date +%y.%m.%d)-${COMMIT_HASH}"
@@ -121,7 +117,6 @@ jobs:
 
       - name: Load Custom Feeds
         run: |
-          set -euo pipefail
           [ -e "$FEEDS_CONF" ] && mv "$FEEDS_CONF" openwrt/feeds.conf.default
           chmod +x "$DIY_P1_SH"
           cd openwrt
@@ -146,7 +141,6 @@ jobs:
 
       - name: Load Custom Configuration
         run: |
-          set -euo pipefail
           [ -e files ] && mv files openwrt/files
           [ -e "$CONFIG_FILE" ] && mv "$CONFIG_FILE" openwrt/.config
           chmod +x "$DIY_P2_SH"
@@ -182,8 +176,8 @@ jobs:
         run: |
           ruby <<'RUBY' >> "$GITHUB_ENV"
             source_name = ENV.fetch("SOURCE_NAME")
-            source_tag = ENV.fetch("SOURCE_TAG")
-            version = source_tag.sub(/^#{Regexp.escape(source_name)}-/i, "")
+            source_version = ENV["SOURCE_TAG"] || ENV.fetch("SOURCE_BRANCH")
+            version = source_version.sub(/^#{Regexp.escape(source_name)}-/i, "")
             base_version = version.sub(/-rc[0-9]*/, "")
             build_date = Time.now.strftime("%Y.%m.%d_%H%M")
 
