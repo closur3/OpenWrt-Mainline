@@ -14,10 +14,6 @@ grep "feeds.conf.default" "$GITHUB_WORKSPACE/diy-part1.sh" \
 | sed "s/.*'\(.*\)'.*/\1/" \
 | xargs -I{} sed -i "\|^{}$|d" feeds.conf.default
 
-# GOLANG
-rm -rf feeds/packages/lang/golang
-git clone https://github.com/sbwml/packages_lang_golang feeds/packages/lang/golang
-
 # ARGON
 git clone https://github.com/jerrykuku/luci-theme-argon package/luci-theme-argon
 git clone https://github.com/jerrykuku/luci-app-argon-config package/luci-app-argon-config

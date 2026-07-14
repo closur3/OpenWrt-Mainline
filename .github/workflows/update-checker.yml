@@ -26,91 +26,54 @@ jobs:
     if: github.actor != 'github-actions[bot]' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          persist-credentials: false
-
-      - name: Install Repository Input Parser
-        run: python3 -m pip install 'ruamel.yaml==0.19.1'
+          ref: ${{ github.ref_name }}
 
       - name: Update Tracked Inputs
+        id: inputs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/repository-inputs.py update
+        run: |
+          python3 -m pip install 'ruamel.yaml==0.19.1'
+          python3 .github/scripts/repository-inputs.py update
 
-      - name: Commit Repository Metadata
+      - name: Commit Tracked Inputs
         id: metadata
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: ${{ steps.inputs.outputs.commit_message }}
+          file_pattern: .repo
+
+      - name: Get Last Builder Run
+        id: builder
+        uses: octokit/request-action@v3.0.0
+        with:
+          route: GET /repos/${{ github.repository }}/actions/workflows/openwrt-builder.yml/runs?status=completed&per_page=1
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          if git diff --quiet -- .repo; then
-            changed=false
-          else
-            git config --local user.name "github-actions[bot]"
-            git config --local user.email "github-actions[bot]@users.noreply.github.com"
-            git add .repo
-            git commit -m "Update .repo"
+      - name: Trigger OpenWrt Builder
+        if: >-
+          steps.metadata.outputs.changes_detected == 'true' ||
+          github.event_name == 'push' ||
+          !contains(fromJSON(steps.builder.outputs.data).workflow_runs.*.conclusion, 'success')
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          event-type: OpenWrt Builder
+          client-payload: '{"config_commit":"${{ steps.metadata.outputs.commit_hash || github.sha }}"}'
 
-            auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
-              push origin HEAD:refs/heads/main
-            changed=true
-          fi
-
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          echo "config_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Trigger Builder
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_CHANGED: ${{ steps.metadata.outputs.changed }}
-          CONFIG_COMMIT: ${{ steps.metadata.outputs.config_commit }}
-        run: |
-          REPO="${{ github.repository }}"
-          WF_NAME="OpenWrt Builder"
-
-          WF_ID=$(gh api "repos/$REPO/actions/workflows" \
-            --jq ".workflows[] | select(.name==\"$WF_NAME\") | .id")
-
-          LAST_CONCLUSION=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=1" --jq '.workflow_runs[0].conclusion // "none"')
-
-          TRIGGER_REASON=""
-
-          if [[ "$REPO_CHANGED" == "true" ]]; then
-            TRIGGER_REASON=".repo changed"
-          elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            TRIGGER_REASON="push event"
-          elif [[ "$LAST_CONCLUSION" == "none" ]]; then
-            TRIGGER_REASON="no previous build"
-          elif [[ "$LAST_CONCLUSION" != "success" ]]; then
-            TRIGGER_REASON="last build $LAST_CONCLUSION"
-          fi
-
-          echo "::notice::🖥️ Last conclusion: $LAST_CONCLUSION"
-          echo "::notice::🖥️ Trigger: ${TRIGGER_REASON:-none}"
-
-          if [[ -n "$TRIGGER_REASON" ]]; then
-            gh api -X POST "repos/$REPO/dispatches" \
-              -f "event_type=$WF_NAME" \
-              -f "client_payload[config_commit]=$CONFIG_COMMIT"
-          fi
-
-      - name: Cleanup Expired Workflows
+      - name: Cleanup Expired Workflow Runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
           keep_minimum_runs: 1
           delete_workflow_pattern: update-checker.yml
 
-      - name: Cleanup Dependabot Workflows
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh run list --repo "$REPO" --user "dependabot[bot]" --limit 100 --json databaseId --jq '.[].databaseId' |
-          while read -r run_id; do
-            [ -n "$run_id" ] || continue
-            echo "Deleting Dependabot workflow run: $run_id"
-            gh api -X DELETE "repos/$REPO/actions/runs/$run_id"
-          done
+      - name: Cleanup Dependabot Workflow Runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 0
+          delete_workflow_pattern: dependabot-updates

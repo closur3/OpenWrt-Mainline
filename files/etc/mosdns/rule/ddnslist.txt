@@ -1,1 +1,1 @@
-{{DDNS_DOMAIN}}
+hsux.pp.ua

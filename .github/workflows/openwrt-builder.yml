@@ -26,7 +26,6 @@ env:
   DIY_P2_SH: diy-part2.sh
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-  DDNS_DOMAIN: ${{ vars.DDNS_DOMAIN }}
 
 jobs:
   build:
@@ -37,17 +36,6 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.config_commit || github.sha }}
           persist-credentials: false
-
-      - name: Verify Configuration Revision
-        if: github.event_name == 'repository_dispatch'
-        env:
-          EXPECTED_COMMIT: ${{ github.event.client_payload.config_commit }}
-        run: |
-          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "Invalid configuration commit: $EXPECTED_COMMIT" >&2
-            exit 1
-          }
-          [[ "$(git rev-parse HEAD)" == "$EXPECTED_COMMIT" ]]
 
       - name: Free Disk Space
         uses: endersonmenezes/free-disk-space@v3
@@ -89,7 +77,7 @@ jobs:
           python3 -m pip install 'ruamel.yaml==0.19.1'
           python3 .github/scripts/repository-inputs.py github-env source >> "$GITHUB_ENV"
 
-      - name: Clone Tracked Source
+      - name: Fetch OpenWrt Source
         working-directory: /workdir
         run: |
           df -hT "$PWD"
@@ -121,23 +109,12 @@ jobs:
 
       - name: Apply Custom Configuration
         run: |
-          ruby <<'RUBY'
-            domain = ENV.fetch("DDNS_DOMAIN").strip
-            abort("Repository variable DDNS_DOMAIN is required") if domain.empty?
-            abort("Repository variable DDNS_DOMAIN must be a domain name") unless domain.match?(/\A[a-z0-9.-]+\z/i)
-
-            ddns_rule = "files/etc/mosdns/rule/ddnslist.txt"
-            mosdns_config = "files/etc/config/mosdns"
-
-            File.write(ddns_rule, "#{domain}\n")
-            File.write(mosdns_config, File.read(mosdns_config).gsub("{{DDNS_DOMAIN}}", domain))
-          RUBY
           [ -e files ] && mv files openwrt/files
           [ -e "$CONFIG_FILE" ] && mv "$CONFIG_FILE" openwrt/.config
           cd openwrt
           "$GITHUB_WORKSPACE/$DIY_P2_SH"
 
-      - name: SSH Connection To Actions
+      - name: Connect to GitHub Actions via SSH
         uses: P3TERX/ssh2actions@v1.0.0
         if: github.event.inputs.ssh == 'true'
 
@@ -155,39 +132,29 @@ jobs:
           echo "$(nproc) thread compile"
           make -j"$(nproc)" || make -j1 || make -j1 V=s
 
-      - name: Check Space Usage
+      - name: Check Disk Space Usage
         if: (!cancelled())
         run: df -hT
 
-      - name: Prepare Release
+      - name: Prepare Firmware Release
         id: organize
         run: |
-          ruby <<'RUBY' >> "$GITHUB_ENV"
-            source_name = ENV.fetch("SOURCE_NAME")
-            source_version = ENV["SOURCE_TAG"] || ENV.fetch("SOURCE_BRANCH")
-            version = source_version.sub(/^#{Regexp.escape(source_name)}-/i, "")
-            base_version = version.sub(/-rc[0-9]*/, "")
-            build_date = Time.now.strftime("%Y.%m.%d_%H%M")
-
-            puts "VER_FULL=#{version}"
-            puts "VER_BASE=#{base_version}"
-            puts "BUILD_DATE=#{build_date}"
-            puts "RELEASE_TAG=#{source_name}-#{version}_#{build_date}"
-          RUBY
+          RELEASE_VERSION="${SOURCE_TAG:-$SOURCE_BRANCH}"
+          echo "RELEASE_VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=${SOURCE_NAME}-${RELEASE_VERSION}_$(date +%Y.%m.%d_%H%M)" >> "$GITHUB_ENV"
           cd openwrt/bin/targets/*/*
           rm -rf packages
           echo "${FIRMWARE_VERSION_ID}" >> version.buildinfo
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
-      - name: Upload Firmware To Release
+      - name: Publish Firmware Release
         uses: softprops/action-gh-release@v3
         if: steps.organize.outcome == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.FIRMWARE }}/*
 
-      - name: Cleanup Expired Workflows
+      - name: Cleanup Expired Workflow Runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
@@ -198,34 +165,17 @@ jobs:
         if: steps.organize.outcome == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
         run: |
-          REPO="${{ github.repository }}"
-
-          releases=$(gh release list --repo "$REPO" --limit 100 --json tagName,createdAt \
-            | jq -r 'sort_by(.createdAt) | reverse | .[].tagName')
-
-          declare -A seen
-
-          while IFS= read -r tag; do
-            prefix="${SOURCE_NAME}-"
-            [[ "$tag" == "$prefix"* ]] || continue
-
-            version="${tag#$prefix}"
-            base="${version%%_*}"
-            base="${base%%-rc*}"
-
-            if [[ "$base" == "$VER_BASE" ]]; then
-              limit=2
-            else
-              limit=1
-            fi
-
-            count=${seen[$base]:-0}
-            if (( count < limit )); then
-              seen[$base]=$((count + 1))
-            else
-              echo "Deleting: $tag"
-              gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag
-            fi
-          done <<< "$releases"
+          echo "Current release version $RELEASE_VERSION: keep 2 builds; other versions: keep 1 build"
+          gh release list --limit 1000 --json tagName,createdAt \
+            | jq -r --arg prefix "${SOURCE_NAME}-" --arg current "$RELEASE_VERSION" '
+                map(select(.tagName | startswith($prefix)))
+                | group_by(.tagName | ltrimstr($prefix) | split("_")[0])[]
+                | sort_by(.createdAt) | reverse
+                | .[(if (.[0].tagName | ltrimstr($prefix) | split("_")[0]) == $current then 2 else 1 end):]
+                | .[].tagName
+              ' \
+            | while IFS= read -r tag; do
+                echo "Deleting: $tag"
+                gh release delete "$tag" --yes --cleanup-tag
+              done

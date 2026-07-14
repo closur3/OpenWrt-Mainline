@@ -58,14 +58,7 @@ def natural_key(value):
 
 
 def version_key(tag):
-    prerelease = PRERELEASE_PATTERN.search(tag)
-    if prerelease:
-        return (
-            natural_key(tag[: prerelease.start()]),
-            0,
-            natural_key(tag[prerelease.start() + 1 :]),
-        )
-    return natural_key(tag), 1, ()
+    return natural_key(tag)
 
 
 def sort_versions(tags):
@@ -274,14 +267,20 @@ def report_commit(name, old_commit, commit, selected_file=False):
 
 
 def update_manifest(yaml, manifest):
+    details = []
+
     for group in ("source", "packages"):
         for name, item in manifest.get(group, {}).items():
+            old_tag = item.get("tag")
             old_commit = item["commit"]
             commit = update_tracking(name, item)
             item["commit"] = commit
             report_commit(name, old_commit, commit)
+            if old_tag != item.get("tag") or old_commit != commit:
+                details.append(f"{name} to {item.get('tag', commit[:8])}")
 
     for name, item in manifest.get("files", {}).items():
+        old_tag = item.get("tag")
         old_commit = item["commit"]
         if "tag" in item:
             update_tracking(name, item)
@@ -290,9 +289,13 @@ def update_manifest(yaml, manifest):
         commit = latest_path_commit(name, item)
         item["commit"] = commit
         report_commit(name, old_commit, commit, selected_file=True)
+        if old_tag != item.get("tag") or old_commit != commit:
+            details.append(f"{name} to {item.get('tag', commit[:8])}")
 
     with MANIFEST_PATH.open("w", encoding="utf-8", newline="\n") as stream:
         yaml.dump(manifest, stream)
+
+    return f"Update: {', '.join(details)}" if details else "Update .repo"
 
 
 def source_environment(manifest):
@@ -460,7 +463,10 @@ def main():
     yaml, manifest = load_manifest()
 
     if args.command == "update":
-        update_manifest(yaml, manifest)
+        commit_message = update_manifest(yaml, manifest)
+        if output := os.environ.get("GITHUB_OUTPUT"):
+            with open(output, "a", encoding="utf-8", newline="\n") as stream:
+                print(f"commit_message={commit_message}", file=stream)
     elif args.command == "github-env":
         source_environment(manifest)
     elif args.command == "materialize":
