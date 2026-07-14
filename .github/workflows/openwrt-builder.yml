@@ -86,12 +86,8 @@ jobs:
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
           sudo chown "$USER:$(id -gn)" /workdir
-
-      - name: Install Repository Input Parser
-        run: python3 -m pip install 'ruamel.yaml==0.19.1'
-
-      - name: Load Repository Metadata
-        run: python3 .github/scripts/repository-inputs.py github-env source >> "$GITHUB_ENV"
+          python3 -m pip install 'ruamel.yaml==0.19.1'
+          python3 .github/scripts/repository-inputs.py github-env source >> "$GITHUB_ENV"
 
       - name: Clone Tracked Source
         working-directory: /workdir
@@ -115,17 +111,15 @@ jobs:
           ccache: true
           prefix: ${{ github.workspace }}/openwrt
 
-      - name: Load Custom Feeds
+      - name: Prepare Feeds
         run: |
           [ -e "$FEEDS_CONF" ] && mv "$FEEDS_CONF" openwrt/feeds.conf.default
-          chmod +x "$DIY_P1_SH"
           cd openwrt
           "$GITHUB_WORKSPACE/$DIY_P1_SH"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: Update And Install Feeds
-        run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
-
-      - name: Render Repository Variables
+      - name: Apply Custom Configuration
         run: |
           ruby <<'RUBY'
             domain = ENV.fetch("DDNS_DOMAIN").strip
@@ -138,12 +132,8 @@ jobs:
             File.write(ddns_rule, "#{domain}\n")
             File.write(mosdns_config, File.read(mosdns_config).gsub("{{DDNS_DOMAIN}}", domain))
           RUBY
-
-      - name: Load Custom Configuration
-        run: |
           [ -e files ] && mv files openwrt/files
           [ -e "$CONFIG_FILE" ] && mv "$CONFIG_FILE" openwrt/.config
-          chmod +x "$DIY_P2_SH"
           cd openwrt
           "$GITHUB_WORKSPACE/$DIY_P2_SH"
 
@@ -152,7 +142,6 @@ jobs:
         if: github.event.inputs.ssh == 'true'
 
       - name: Download Source Packages
-        id: package
         run: |
           cd openwrt
           make defconfig
@@ -161,7 +150,6 @@ jobs:
           find dl -size -1024c -exec rm -f {} \;
 
       - name: Compile Firmware
-        id: compile
         run: |
           cd openwrt
           echo "$(nproc) thread compile"
@@ -171,8 +159,8 @@ jobs:
         if: (!cancelled())
         run: df -hT
 
-      - name: Prepare Release Metadata
-        id: version
+      - name: Prepare Release
+        id: organize
         run: |
           ruby <<'RUBY' >> "$GITHUB_ENV"
             source_name = ENV.fetch("SOURCE_NAME")
@@ -186,10 +174,6 @@ jobs:
             puts "BUILD_DATE=#{build_date}"
             puts "RELEASE_TAG=#{source_name}-#{version}_#{build_date}"
           RUBY
-
-      - name: Prepare Firmware Artifacts
-        id: organize
-        run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
           echo "${FIRMWARE_VERSION_ID}" >> version.buildinfo
