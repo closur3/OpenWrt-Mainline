@@ -43,7 +43,7 @@ def git_lines(*args):
 
 
 def run_checked(*args):
-    print("+", " ".join(str(arg) for arg in args))
+    print("+", " ".join(str(arg) for arg in args), flush=True)
     result = subprocess.run(args, check=False)
     if result.returncode != 0:
         fail(f"{' '.join(str(arg) for arg in args)} failed")
@@ -329,7 +329,7 @@ def remove_target(path):
 
 def checkout_package(name, item, root):
     destination = target_path(root, item["destination"], ("package", "feeds"))
-    print(f"Checking out {name} at {item['commit']} -> {item['destination']}")
+    print(f"Checking out {name} at {item['commit']} -> {item['destination']}", flush=True)
     remove_target(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -396,7 +396,7 @@ def install_file(name, item, root):
     download = download_file(item)
     temporary_output = None
 
-    print(f"Installing {name} -> {item['destination']}")
+    print(f"Installing {name} -> {item['destination']}", flush=True)
     try:
         with tempfile.NamedTemporaryFile(
             dir=destination.parent, delete=False
