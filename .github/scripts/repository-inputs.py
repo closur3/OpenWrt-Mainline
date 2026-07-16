@@ -58,7 +58,7 @@ def natural_key(value):
 
 
 def version_key(tag):
-    return natural_key(tag)
+    return natural_key(re.sub(r"^v(?=\d)", "", tag, flags=re.IGNORECASE))
 
 
 def sort_versions(tags):
@@ -95,13 +95,13 @@ def resolve_branch(url, branch):
     return resolve_remote_reference(url, f"refs/heads/{branch}")
 
 
-def load_manifest():
+def load_manifest(allow_empty=False):
     yaml = YAML()
     yaml.preserve_quotes = True
     yaml.indent(mapping=2, sequence=4, offset=2)
     yaml.width = 4096
     manifest = yaml.load(MANIFEST_PATH)
-    validate_manifest(manifest)
+    validate_manifest(manifest, allow_empty)
     return yaml, manifest
 
 
@@ -117,11 +117,14 @@ def require_text(item, field, label):
     return value
 
 
-def tracking_field(item, label):
+def tracking_field(item, label, allow_empty=False):
     fields = [field for field in ("tag", "branch") if field in item]
     if len(fields) != 1:
         fail(f"{label} must contain exactly one of tag or branch")
-    return fields[0], require_text(item, fields[0], label)
+    field = fields[0]
+    if allow_empty and field == "tag" and item[field] in (None, ""):
+        return field, ""
+    return field, require_text(item, field, label)
 
 
 def relative_path(value, label, prefixes):
@@ -137,8 +140,8 @@ def relative_path(value, label, prefixes):
     return path
 
 
-def validate_entry(name, item, group):
-    label = f"{group}.{name}"
+def validate_entry(name, item, group, parent=None, allow_empty=False):
+    label = f"{parent}.companions.{name}" if parent else f"{group}.{name}"
     if not isinstance(name, str) or not name:
         fail(f"{group} names must be non-empty strings")
     require_mapping(item, label)
@@ -146,6 +149,8 @@ def validate_entry(name, item, group):
     allowed = {"url", "tag", "branch", "commit"}
     if group == "packages":
         allowed.add("destination")
+        if parent is None:
+            allowed.add("companions")
     elif group == "files":
         allowed.update({"path", "archive_member", "destination"})
 
@@ -154,13 +159,22 @@ def validate_entry(name, item, group):
         fail(f"{label} has unsupported fields: {', '.join(sorted(unknown))}")
 
     require_text(item, "url", label)
-    tracking_field(item, label)
-    commit = require_text(item, "commit", label)
-    if not COMMIT_PATTERN.fullmatch(commit):
+    tracking_field(item, label, allow_empty)
+    if "commit" not in item:
+        fail(f"{label}.commit is required")
+    commit = item["commit"]
+    if not (allow_empty and commit in (None, "")):
+        commit = require_text(item, "commit", label)
+    if commit and not COMMIT_PATTERN.fullmatch(commit):
         fail(f"{label}.commit must be a 40-character lowercase commit")
 
     if group == "packages":
         relative_path(item, (label, "destination"), ("package", "feeds"))
+        if "companions" in item:
+            companions = item["companions"]
+            require_mapping(companions, f"{label}.companions")
+            for companion_name, companion in companions.items():
+                validate_entry(companion_name, companion, group, label, allow_empty)
     elif group == "files":
         relative_path(item, (label, "path"), ())
         relative_path(item, (label, "destination"), ("package", "feeds", "files"))
@@ -168,7 +182,7 @@ def validate_entry(name, item, group):
             require_text(item, "archive_member", label)
 
 
-def validate_manifest(manifest):
+def validate_manifest(manifest, allow_empty=False):
     require_mapping(manifest, ".repo")
     unknown = set(manifest) - {"source", "packages", "files"}
     if unknown:
@@ -183,12 +197,12 @@ def validate_manifest(manifest):
         entries = manifest.get(group, {})
         require_mapping(entries, group)
         for name, item in entries.items():
-            validate_entry(name, item, group)
+            validate_entry(name, item, group, allow_empty=allow_empty)
 
 
 def update_tracking(name, item):
     url = item["url"]
-    tracking_type, current = tracking_field(item, name)
+    tracking_type, current = tracking_field(item, name, allow_empty=True)
 
     if tracking_type == "branch":
         commit = resolve_branch(url, current)
@@ -201,7 +215,7 @@ def update_tracking(name, item):
     if latest is None:
         fail(f"{name}: no stable tags found at {url}")
 
-    if version_key(latest) > version_key(current):
+    if not current or version_key(latest) > version_key(current):
         item["tag"] = latest
         current = latest
         print(f"::notice::⬆️ {name}: updated -> {latest}")
@@ -211,6 +225,19 @@ def update_tracking(name, item):
     commit = resolve_tag(url, current)
     if not commit:
         fail(f"{name}: tag not found: {current}")
+    return commit
+
+
+def resolve_tracking(name, item):
+    url = item["url"]
+    tracking_type, current = tracking_field(item, name)
+    commit = (
+        resolve_tag(url, current)
+        if tracking_type == "tag"
+        else resolve_branch(url, current)
+    )
+    if not commit:
+        fail(f"{name}: {tracking_type} not found: {current}")
     return commit
 
 
@@ -276,8 +303,11 @@ def update_manifest(yaml, manifest):
             commit = update_tracking(name, item)
             item["commit"] = commit
             report_commit(name, old_commit, commit)
-            if old_tag != item.get("tag") or old_commit != commit:
+            changed = old_tag != item.get("tag") or old_commit != commit
+            if changed:
                 details.append(f"{name} to {item.get('tag', commit[:8])}")
+                for companion_name, companion in item.get("companions", {}).items():
+                    companion["commit"] = resolve_tracking(companion_name, companion)
 
     for name, item in manifest.get("files", {}).items():
         old_tag = item.get("tag")
@@ -438,6 +468,8 @@ def materialize(manifest, root_value):
 
     for name, item in manifest.get("packages", {}).items():
         checkout_package(name, item, root)
+        for companion_name, companion in item.get("companions", {}).items():
+            checkout_package(companion_name, companion, root)
 
     for name, item in manifest.get("files", {}).items():
         install_file(name, item, root)
@@ -460,7 +492,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    yaml, manifest = load_manifest()
+    yaml, manifest = load_manifest(allow_empty=args.command == "update")
 
     if args.command == "update":
         commit_message = update_manifest(yaml, manifest)

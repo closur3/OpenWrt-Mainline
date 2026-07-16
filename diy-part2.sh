@@ -14,10 +14,6 @@ grep "feeds.conf.default" "$GITHUB_WORKSPACE/diy-part1.sh" \
 | sed "s/.*'\(.*\)'.*/\1/" \
 | xargs -I{} sed -i "\|^{}$|d" feeds.conf.default
 
-# ARGON
-git clone https://github.com/jerrykuku/luci-theme-argon package/luci-theme-argon
-git clone https://github.com/jerrykuku/luci-app-argon-config package/luci-app-argon-config
-
 # V2RAY-GEODATA
 find ./ | grep Makefile | grep v2ray-geodata | xargs rm -f
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata

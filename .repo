@@ -17,6 +17,18 @@ packages:
     commit: 65060f710fb80c2d8881fa861e780a0bb32524b7
     destination: package/mosdns
 
+  Argon Theme:
+    url: https://github.com/jerrykuku/luci-theme-argon
+    tag:
+    commit:
+    destination: package/luci-theme-argon
+    companions:
+      Argon Config:
+        url: https://github.com/jerrykuku/luci-app-argon-config
+        branch: master
+        commit:
+        destination: package/luci-app-argon-config
+
 files:
   OpenClash Core:
     url: https://github.com/vernesong/OpenClash
