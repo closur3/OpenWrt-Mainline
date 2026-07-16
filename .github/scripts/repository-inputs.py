@@ -283,14 +283,13 @@ def latest_path_commit(name, item):
     return commit
 
 
-def report_commit(name, old_commit, commit, selected_file=False):
-    subject = "selected file " if selected_file else ""
+def report_commit(name, old_commit, commit):
     if old_commit == commit:
-        print(f"::notice::✅ {name}: {subject}identical -> {commit}")
+        print(f"::notice::✅ {name}: identical -> {commit}")
     elif old_commit:
-        print(f"::notice::🔄 {name}: {subject}changed -> {commit}")
+        print(f"::notice::🔄 {name}: changed -> {commit}")
     else:
-        print(f"::notice::✨ {name}: {subject}added -> {commit}")
+        print(f"::notice::✨ {name}: added -> {commit}")
 
 
 def update_manifest(yaml, manifest):
@@ -315,10 +314,10 @@ def update_manifest(yaml, manifest):
         if "tag" in item:
             update_tracking(name, item)
         else:
-            print(f"::notice::⏩ {name}: tracking branch path -> {item['branch']}:{item['path']}")
+            print(f"::notice::⏩ {name}: tracking -> {item['branch']}:{item['path']}")
         commit = latest_path_commit(name, item)
         item["commit"] = commit
-        report_commit(name, old_commit, commit, selected_file=True)
+        report_commit(name, old_commit, commit)
         if old_tag != item.get("tag") or old_commit != commit:
             details.append(f"{name} to {item.get('tag', commit[:8])}")
 
