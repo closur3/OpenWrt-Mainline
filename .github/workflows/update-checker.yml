@@ -54,6 +54,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Report Builder Status
+        env:
+          REPO_CHANGED: ${{ steps.metadata.outputs.changes_detected }}
+          LAST_CONCLUSION: ${{ fromJSON(steps.builder.outputs.data).workflow_runs[0].conclusion || 'none' }}
+          LAST_RUN_TIME: ${{ fromJSON(steps.builder.outputs.data).workflow_runs[0].updated_at || 'null' }}
+        run: |
+          if [ "$LAST_RUN_TIME" = 'null' ]; then
+            echo "::notice::🕘 Last build: null"
+            echo "::notice::🕒 Time diff: 0 days"
+          else
+            echo "::notice::🕘 Last build: $(TZ='Asia/Shanghai' date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
+            echo "::notice::🕒 Time diff: $(( ($(date +%s) - $(date -d "$LAST_RUN_TIME" +%s)) / 86400 )) days"
+          fi
+
+          if [ "$REPO_CHANGED" = 'true' ]; then
+            trigger='.repo changed'
+          elif [ "$GITHUB_EVENT_NAME" = 'push' ]; then
+            trigger='push event'
+          elif [ "$LAST_CONCLUSION" = 'none' ]; then
+            trigger='no previous build'
+          elif [ "$LAST_CONCLUSION" != 'success' ]; then
+            trigger="last build $LAST_CONCLUSION"
+          else
+            trigger='none'
+          fi
+
+          echo "::notice::🖥️ Last conclusion: $LAST_CONCLUSION"
+          echo "::notice::🖥️ Trigger: $trigger"
+
       - name: Trigger OpenWrt Builder
         if: >-
           steps.metadata.outputs.changes_detected == 'true' ||
