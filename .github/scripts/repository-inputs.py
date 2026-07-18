@@ -324,6 +324,24 @@ def update_manifest(yaml, manifest):
     with MANIFEST_PATH.open("w", encoding="utf-8", newline="\n") as stream:
         yaml.dump(manifest, stream)
 
+    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+        entries = []
+        for group in ("source", "packages", "files"):
+            for name, item in manifest.get(group, {}).items():
+                entries.append((name, item))
+                entries.extend(item.get("companions", {}).items())
+
+        with open(summary, "a", encoding="utf-8", newline="\n") as stream:
+            print("## Tracked Inputs", file=stream)
+            print("", file=stream)
+            print("| Input | Ref / Path | Commit |", file=stream)
+            print("| --- | --- | --- |", file=stream)
+            for name, item in entries:
+                reference = item.get("tag") or item["branch"]
+                if path := item.get("path"):
+                    reference = f"{reference}:{path}"
+                print(f"| {name} | `{reference}` | `{item['commit']}` |", file=stream)
+
     return f"Update: {', '.join(details)}" if details else "Update .repo"
 
 
