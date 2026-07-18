@@ -7,8 +7,8 @@ source:
 packages:
   OpenClash:
     url: https://github.com/vernesong/OpenClash
-    tag: v0.47.116
-    commit: 23896d2662a7d49fa870d37c5cda4b3247a35ae4
+    tag: v0.47.133
+    commit: a9e5d98cd664917724dbfb0a31440e512ab45a1b
     destination: package/openclash
 
   MosDNS:
@@ -33,7 +33,7 @@ files:
   OpenClash Core:
     url: https://github.com/vernesong/OpenClash
     branch: core
-    commit: 2512856ee7a3478a94c890bd7431e0695023a03a
+    commit: 452e3383ff6292e6f9a070accc45baaa67b47c51
     path: master/meta/clash-linux-amd64-v2.tar.gz
     archive_member: clash
     destination: package/openclash/luci-app-openclash/root/etc/openclash/core/clash_meta
