@@ -208,8 +208,7 @@ def update_tracking(name, item):
         commit = resolve_branch(url, current)
         if not commit:
             fail(f"{name}: branch not found: {current}")
-        print(f"::notice::⏩ {name}: tracking branch -> {current}")
-        return commit
+        return commit, "⏩ tracking", current
 
     latest = latest_stable_tag(url)
     if latest is None:
@@ -218,14 +217,14 @@ def update_tracking(name, item):
     if not current or version_key(latest) > version_key(current):
         item["tag"] = latest
         current = latest
-        print(f"::notice::⬆️ {name}: updated -> {latest}")
+        status = "⬆️ updated"
     else:
-        print(f"::notice::✅ {name}: up-to-date -> {current}")
+        status = "✅ up-to-date"
 
     commit = resolve_tag(url, current)
     if not commit:
         fail(f"{name}: tag not found: {current}")
-    return commit
+    return commit, status, current
 
 
 def resolve_tracking(name, item):
@@ -283,25 +282,25 @@ def latest_path_commit(name, item):
     return commit
 
 
-def report_commit(name, old_commit, commit):
+def commit_result(old_commit, commit):
     if old_commit == commit:
-        print(f"::notice::✅ {name}: identical -> {commit}")
-    elif old_commit:
-        print(f"::notice::🔄 {name}: changed -> {commit}")
-    else:
-        print(f"::notice::✨ {name}: added -> {commit}")
+        return "✅ identical"
+    if old_commit:
+        return "🔄 changed"
+    return "✨ added"
 
 
 def update_manifest(yaml, manifest):
     details = []
+    results = []
 
     for group in ("source", "packages"):
         for name, item in manifest.get(group, {}).items():
             old_tag = item.get("tag")
             old_commit = item["commit"]
-            commit = update_tracking(name, item)
+            commit, tracking, reference = update_tracking(name, item)
             item["commit"] = commit
-            report_commit(name, old_commit, commit)
+            results.append((name, tracking, reference, commit_result(old_commit, commit), commit))
             changed = old_tag != item.get("tag") or old_commit != commit
             if changed:
                 details.append(f"{name} to {item.get('tag', commit[:8])}")
@@ -312,35 +311,35 @@ def update_manifest(yaml, manifest):
         old_tag = item.get("tag")
         old_commit = item["commit"]
         if "tag" in item:
-            update_tracking(name, item)
+            _, tracking, reference = update_tracking(name, item)
         else:
-            print(f"::notice::⏩ {name}: tracking -> {item['branch']}:{item['path']}")
+            tracking = "⏩ tracking"
+            reference = f"{item['branch']}:{item['path']}"
         commit = latest_path_commit(name, item)
         item["commit"] = commit
-        report_commit(name, old_commit, commit)
+        results.append((name, tracking, reference, commit_result(old_commit, commit), commit))
         if old_tag != item.get("tag") or old_commit != commit:
             details.append(f"{name} to {item.get('tag', commit[:8])}")
 
     with MANIFEST_PATH.open("w", encoding="utf-8", newline="\n") as stream:
         yaml.dump(manifest, stream)
 
-    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
-        entries = []
-        for group in ("source", "packages", "files"):
-            for name, item in manifest.get(group, {}).items():
-                entries.append((name, item))
-                entries.extend(item.get("companions", {}).items())
+    for name, tracking, reference, commit_status, commit in results:
+        print(f"{name}: {tracking} » {reference}; {commit_status} » {commit}")
 
+    if summary := os.environ.get("UPDATE_CHECK_SUMMARY"):
         with open(summary, "a", encoding="utf-8", newline="\n") as stream:
-            print("## Tracked Inputs", file=stream)
+            print("## Update Check", file=stream)
             print("", file=stream)
-            print("| Input | Ref / Path | Commit |", file=stream)
+            print("| Input | Tracking | Commit |", file=stream)
             print("| --- | --- | --- |", file=stream)
-            for name, item in entries:
-                reference = item.get("tag") or item["branch"]
-                if path := item.get("path"):
-                    reference = f"{reference}:{path}"
-                print(f"| {name} | `{reference}` | `{item['commit']}` |", file=stream)
+            for name, tracking, reference, commit_status, commit in results:
+                print(
+                    f"| {name} | {tracking} » `{reference}` | "
+                    f"{commit_status} » `{commit}` |",
+                    file=stream,
+                )
+            print("", file=stream)
 
     return f"Update: {', '.join(details)}" if details else "Update .repo"
 

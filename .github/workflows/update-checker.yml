@@ -35,6 +35,7 @@ jobs:
         id: inputs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_CHECK_SUMMARY: ${{ runner.temp }}/update-check.md
         run: |
           python3 -m pip install 'ruamel.yaml==0.19.1'
           python3 .github/scripts/repository-inputs.py update
@@ -57,15 +58,19 @@ jobs:
       - name: Report Builder Status
         env:
           REPO_CHANGED: ${{ steps.metadata.outputs.changes_detected }}
+          UPDATE_CHECK_SUMMARY: ${{ runner.temp }}/update-check.md
           LAST_CONCLUSION: ${{ fromJSON(steps.builder.outputs.data).workflow_runs[0].conclusion || 'none' }}
           LAST_RUN_TIME: ${{ fromJSON(steps.builder.outputs.data).workflow_runs[0].updated_at || 'null' }}
         run: |
+          echo "## Builder Status" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+
           if [ "$LAST_RUN_TIME" = 'null' ]; then
-            echo "::notice::🕘 Last build: null"
-            echo "::notice::🕒 Time diff: 0 days"
+            echo "- 🕘 Last build: null" >> "$GITHUB_STEP_SUMMARY"
+            echo "- 🕒 Time diff: 0 days" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::notice::🕘 Last build: $(TZ='Asia/Shanghai' date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')"
-            echo "::notice::🕒 Time diff: $(( ($(date +%s) - $(date -d "$LAST_RUN_TIME" +%s)) / 86400 )) days"
+            echo "- 🕘 Last build: $(TZ='Asia/Shanghai' date -d "$LAST_RUN_TIME" '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_STEP_SUMMARY"
+            echo "- 🕒 Time diff: $(( ($(date +%s) - $(date -d "$LAST_RUN_TIME" +%s)) / 86400 )) days" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ "$REPO_CHANGED" = 'true' ]; then
@@ -80,8 +85,11 @@ jobs:
             trigger='none'
           fi
 
-          echo "::notice::🖥️ Last conclusion: $LAST_CONCLUSION"
-          echo "::notice::🖥️ Trigger: $trigger"
+          echo "- 🖥️ Last conclusion: $LAST_CONCLUSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 🖥️ Trigger: $trigger" >> "$GITHUB_STEP_SUMMARY"
+
+          echo >> "$GITHUB_STEP_SUMMARY"
+          cat "$UPDATE_CHECK_SUMMARY" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Trigger OpenWrt Builder
         if: >-
