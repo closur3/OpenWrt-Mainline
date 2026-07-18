@@ -325,7 +325,7 @@ def update_manifest(yaml, manifest):
         yaml.dump(manifest, stream)
 
     for name, tracking, reference, commit_status, commit in results:
-        print(f"{name}: {tracking} » {reference}; {commit_status} » {commit}")
+        print(f"{name}: {tracking}: {reference}; {commit_status}: {commit}")
 
     if summary := os.environ.get("UPDATE_CHECK_SUMMARY"):
         with open(summary, "a", encoding="utf-8", newline="\n") as stream:
@@ -335,8 +335,8 @@ def update_manifest(yaml, manifest):
             print("| --- | --- | --- |", file=stream)
             for name, tracking, reference, commit_status, commit in results:
                 print(
-                    f"| {name} | {tracking} » `{reference}` | "
-                    f"{commit_status} » `{commit}` |",
+                    f"| {name} | {tracking}: `{reference}` | "
+                    f"{commit_status}: `{commit}` |",
                     file=stream,
                 )
             print("", file=stream)
