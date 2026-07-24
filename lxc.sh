@@ -462,13 +462,7 @@ download_firmware() {
             return 0
         fi
     else
-        log "版本探测失败，尝试使用本地缓存固件..."
-        if validate_firmware_archive "$firmware_file"; then
-            FIRMWARE_STATUS="unknown"
-            log "本地缓存固件可用，继续执行。"
-            return 0
-        fi
-        log "错误：无法探测最新版本，且本地缓存不可用。"
+        log "错误：无法探测最新固件地址。"
         exit 1
     fi
 
@@ -493,13 +487,7 @@ download_firmware() {
     fi
 
     rm -f "$temp_file"
-    log "下载失败，尝试使用本地缓存固件..."
-    if validate_firmware_archive "$firmware_file"; then
-        log "本地缓存固件可用，继续执行。"
-        return 0
-    fi
-
-    log "错误：下载失败且本地缓存固件不可用，终止执行以避免停机后升级失败。"
+    log "错误：固件下载失败。"
     exit 1
 }
 
