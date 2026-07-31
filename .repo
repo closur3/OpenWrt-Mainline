@@ -19,8 +19,8 @@ packages:
 
   Argon Theme:
     url: https://github.com/jerrykuku/luci-theme-argon
-    tag: v2.4.5
-    commit: 776bc379c5b792af6fc5b1f3324994bc8f4bc7fd
+    tag: v2.4.6
+    commit: 136eb5d42f30554e89cc737fd90f503909810660
     destination: package/luci-theme-argon
     companions:
       Argon Config:
