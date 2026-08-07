@@ -26,6 +26,7 @@ env:
   DIY_P2_SH: diy-part2.sh
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
+  DDNS_DOMAIN: ${{ vars.DDNS_DOMAIN }}
 
 jobs:
   build:
@@ -109,6 +110,7 @@ jobs:
 
       - name: Prepare Custom Packages
         run: |
+          sed -i "s|__DDNS_DOMAIN__|$DDNS_DOMAIN|g" files/etc/config/mosdns files/etc/mosdns/rule/ddnslist.txt
           [ -e files ] && mv files openwrt/files
           [ -e "$CONFIG_FILE" ] && mv "$CONFIG_FILE" openwrt/.config
           cd openwrt
