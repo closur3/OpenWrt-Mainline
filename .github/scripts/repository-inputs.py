@@ -366,11 +366,16 @@ def target_path(root, value, prefixes):
     return root.joinpath(*path.parts)
 
 
+def make_writable(function, path, exception):
+    os.chmod(path, 0o777)
+    function(path)
+
+
 def remove_target(path):
     if path.is_symlink() or path.is_file():
         path.unlink()
     elif path.exists():
-        shutil.rmtree(path)
+        shutil.rmtree(path, onexc=make_writable)
 
 
 def checkout_package(name, item, root):
@@ -414,6 +419,7 @@ def checkout_package(name, item, root):
     head = command_lines("git", "-C", str(destination), "rev-parse", "HEAD")
     if head != [item["commit"]]:
         fail(f"{name}: checked out {head[0] if head else 'nothing'}, expected {item['commit']}")
+    remove_target(destination / ".git")
 
 
 def raw_file_url(item):
