@@ -11,11 +11,19 @@ packages:
     commit: c3a33c1d3407956fdf8f0e0b7c1a4c52e6ad9593
     destination: package/openclash
 
-  Zashboard:
-    url: https://github.com/Zephyruso/zashboard
-    branch: gh-pages-cdn-fonts
-    commit: b629f4cbbc7d25a6f9af3da4ba2de90f17a7071f
-    destination: package/openclash/luci-app-openclash/root/usr/share/openclash/ui
+    companions:
+      Zashboard:
+        url: https://github.com/Zephyruso/zashboard
+        branch: gh-pages-cdn-fonts
+        commit: b629f4cbbc7d25a6f9af3da4ba2de90f17a7071f
+        destination: package/openclash/luci-app-openclash/root/usr/share/openclash/ui
+      OpenClash Core:
+        url: https://github.com/vernesong/OpenClash
+        branch: core
+        commit: 7dedf5508d1aba0360820bff3532eb4257c79fae
+        path: master/meta/clash-linux-amd64-v2.tar.gz
+        archive_member: clash
+        destination: package/openclash/luci-app-openclash/root/etc/openclash/core/clash_meta
 
   MosDNS:
     url: https://github.com/sbwml/luci-app-mosdns
@@ -34,12 +42,3 @@ packages:
         branch: master
         commit: 3e099a37c3f71d0de677f1b6b0f4bffd57d91dac
         destination: package/luci-app-argon-config
-
-files:
-  OpenClash Core:
-    url: https://github.com/vernesong/OpenClash
-    branch: core
-    commit: 7dedf5508d1aba0360820bff3532eb4257c79fae
-    path: master/meta/clash-linux-amd64-v2.tar.gz
-    archive_member: clash
-    destination: package/openclash/luci-app-openclash/root/etc/openclash/core/clash_meta

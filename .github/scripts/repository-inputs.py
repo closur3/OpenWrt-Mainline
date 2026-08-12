@@ -151,6 +151,8 @@ def validate_entry(name, item, group, parent=None, allow_empty=False):
         allowed.add("destination")
         if parent is None:
             allowed.add("companions")
+        else:
+            allowed.update({"path", "archive_member"})
     elif group == "files":
         allowed.update({"path", "archive_member", "destination"})
 
@@ -169,12 +171,16 @@ def validate_entry(name, item, group, parent=None, allow_empty=False):
         fail(f"{label}.commit must be a 40-character lowercase commit")
 
     if group == "packages":
-        relative_path(item, (label, "destination"), ("package", "feeds"))
+        relative_path(item, (label, "destination"), ("package", "feeds", "files"))
         if "companions" in item:
             companions = item["companions"]
             require_mapping(companions, f"{label}.companions")
             for companion_name, companion in companions.items():
                 validate_entry(companion_name, companion, group, label, allow_empty)
+        if parent is not None and "path" in item:
+            relative_path(item, (label, "path"), ())
+            if "archive_member" in item:
+                require_text(item, "archive_member", label)
     elif group == "files":
         relative_path(item, (label, "path"), ())
         relative_path(item, (label, "destination"), ("package", "feeds", "files"))
@@ -305,7 +311,11 @@ def update_manifest(yaml, manifest):
             if changed:
                 details.append(f"{name} to {item.get('tag', commit[:8])}")
                 for companion_name, companion in item.get("companions", {}).items():
-                    companion["commit"] = resolve_tracking(companion_name, companion)
+                    companion["commit"] = (
+                        latest_path_commit(companion_name, companion)
+                        if "path" in companion
+                        else resolve_tracking(companion_name, companion)
+                    )
 
     for name, item in manifest.get("files", {}).items():
         old_tag = item.get("tag")
@@ -491,7 +501,10 @@ def materialize(manifest, root_value):
     for name, item in manifest.get("packages", {}).items():
         checkout_package(name, item, root)
         for companion_name, companion in item.get("companions", {}).items():
-            checkout_package(companion_name, companion, root)
+            if "path" in companion:
+                install_file(companion_name, companion, root)
+            else:
+                checkout_package(companion_name, companion, root)
 
     for name, item in manifest.get("files", {}).items():
         install_file(name, item, root)
