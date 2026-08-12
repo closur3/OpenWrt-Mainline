@@ -16,7 +16,7 @@ packages:
         url: https://github.com/Zephyruso/zashboard
         branch: gh-pages-cdn-fonts
         commit: b629f4cbbc7d25a6f9af3da4ba2de90f17a7071f
-        destination: package/openclash/luci-app-openclash/root/usr/share/openclash/ui
+        destination: package/openclash/luci-app-openclash/root/usr/share/openclash/ui/zashboard
       OpenClash Core:
         url: https://github.com/vernesong/OpenClash
         branch: core
