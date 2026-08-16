@@ -28,7 +28,7 @@ packages:
   MosDNS:
     url: https://github.com/sbwml/luci-app-mosdns
     tag: v5.3.4-r6
-    commit: 8ff31295229c931ec3260a9398e47b953052769e
+    commit: 3848307f638ac05e8787295220f9798c48fb239b
     destination: package/mosdns
 
   Argon Theme:
