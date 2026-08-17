@@ -158,7 +158,7 @@ init_environment() {
     [ "$(id -u)" -eq 0 ] || die "请使用 root 权限运行此脚本"
     command -v pveversion >/dev/null 2>&1 || die "仅支持在 Proxmox VE (PVE) 宿主机运行（缺少 pveversion）。"
     [ -d "/etc/pve" ] || die "仅支持在 Proxmox VE (PVE) 宿主机运行（缺少 /etc/pve）。"
-    for cmd in pct qm wget curl awk grep sort uniq md5sum cat rm chmod gzip tar mv sed cut xargs seq wc mkdir dirname basename; do
+    for cmd in pct qm wget curl timeout awk grep sort uniq md5sum cat rm chmod gzip tar mv sed cut xargs seq wc mkdir dirname basename; do
         require_cmd "$cmd"
     done
 }
@@ -473,7 +473,7 @@ download_firmware() {
     fi
 
     log "正在下载 OpenWrt 最新版本..."
-    if wget -q --tries=2 --timeout=15 --dns-timeout=5 --connect-timeout=5 --read-timeout=15 -O "$temp_file" "$download_effective_url"; then
+    if timeout 2m wget -q --tries=2 --dns-timeout=5 --connect-timeout=5 --read-timeout=15 -O "$temp_file" "$download_effective_url"; then
         if validate_firmware_archive "$temp_file"; then
             mv -f "$temp_file" "$firmware_file"
             printf '%s\n' "$download_source_id" > "$state_file"
