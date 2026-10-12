@@ -7,20 +7,20 @@ source:
 packages:
   OpenClash:
     url: https://github.com/vernesong/OpenClash
-    tag: v0.47.156
-    commit: c3a33c1d3407956fdf8f0e0b7c1a4c52e6ad9593
+    tag: v0.48.002
+    commit: e553e82e01c697aefbe1555261a503f425e00ccd
     destination: package/openclash
 
     companions:
       Zashboard:
         url: https://github.com/Zephyruso/zashboard
         branch: gh-pages-cdn-fonts
-        commit: b629f4cbbc7d25a6f9af3da4ba2de90f17a7071f
+        commit: f0c490ccb1ae078af08c1df4ef47e8a0f4dc2220
         destination: package/openclash/luci-app-openclash/root/usr/share/openclash/ui/zashboard
       OpenClash Core:
         url: https://github.com/vernesong/OpenClash
         branch: core
-        commit: 7dedf5508d1aba0360820bff3532eb4257c79fae
+        commit: e18b3dfd13ae0eed92c6f0c05b6303923d1e765f
         path: master/meta/clash-linux-amd64-v2.tar.gz
         archive_member: clash
         destination: package/openclash/luci-app-openclash/root/etc/openclash/core/clash_meta
