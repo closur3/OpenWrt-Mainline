@@ -33,12 +33,12 @@ packages:
 
   Argon Theme:
     url: https://github.com/jerrykuku/luci-theme-argon
-    tag: v2.4.8
-    commit: 9f5d1e79e67623f4006a86471116b6745ea845f7
+    tag: v3.0.0
+    commit: e2476f6f5e93bcb087fda525e427202112e6c2c4
     destination: package/luci-theme-argon
     companions:
       Argon Config:
         url: https://github.com/jerrykuku/luci-app-argon-config
         branch: master
-        commit: 3f844c467ce5075e2b0dd61ebf7271640eb08da2
+        commit: 445af53fbee6e00fa6efc0ae33f8b2854df65500
         destination: package/luci-app-argon-config
