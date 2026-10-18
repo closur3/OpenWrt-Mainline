@@ -1,8 +1,8 @@
 source:
   OpenWrt:
     url: https://github.com/openwrt/openwrt
-    tag: v25.12.5
-    commit: f0a60eee2fe051741c643ea6118718aae1ef17fb
+    tag: v25.12.6
+    commit: 64900e756efa667774214f9c6b17c113222e01f7
 
 packages:
   OpenClash:
