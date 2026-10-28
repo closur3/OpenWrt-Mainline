@@ -33,6 +33,6 @@ packages:
 
   Argon Theme:
     url: https://github.com/jerrykuku/luci-theme-argon
-    tag: v3.1.0
-    commit: 96734f4f52e98ac70f564ca4b92644b849e189ba
+    tag: v3.1.1
+    commit: c7fdc52cc198b2d8923214bafa06e6e7279b516b
     destination: package/luci-theme-argon
