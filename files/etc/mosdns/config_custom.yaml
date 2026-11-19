@@ -1,0 +1,277 @@
+{
+  "log": {
+    "level": "error",
+    "file": "/var/log/mosdns.log",
+    "size": "1"
+  },
+  "api": {
+    "http": "127.0.0.1:9091"
+  },
+  "plugins": [
+    {
+      "tag": "stats_collector",
+      "type": "stats_api",
+      "args": {
+        "capacity": 2000
+      }
+    },
+    {
+      "tag": "geosite_cn",
+      "type": "domain_set",
+      "args": {
+        "files": ["/var/mosdns/geosite_cn.txt"]
+      }
+    },
+    {
+      "tag": "geoip_cn",
+      "type": "ip_set",
+      "args": {
+        "files": ["/var/mosdns/geoip_cn.txt"]
+      }
+    },
+    {
+      "tag": "geosite_no_cn",
+      "type": "domain_set",
+      "args": {
+        "files": ["/var/mosdns/geosite_geolocation-!cn.txt"]
+      }
+    },
+    {
+      "tag": "whitelist",
+      "type": "domain_set",
+      "args": {
+        "files": ["/etc/mosdns/rule/whitelist.txt"]
+      }
+    },
+    {
+      "tag": "greylist",
+      "type": "domain_set",
+      "args": {
+        "files": ["/etc/mosdns/rule/greylist.txt"]
+      }
+    },
+    {
+      "tag": "ddnslist",
+      "type": "domain_set",
+      "args": {
+        "files": ["/etc/mosdns/rule/ddnslist.txt"]
+      }
+    },
+    {
+      "tag": "local_ptr",
+      "type": "domain_set",
+      "args": {
+        "files": ["/etc/mosdns/rule/local-ptr.txt"]
+      }
+    },
+    {
+      "tag": "lazy_cache",
+      "type": "cache",
+      "args": {
+        "size": 8000,
+        "lazy_cache_ttl": 86400,
+        "dump_file": "/etc/mosdns/cache.dump",
+        "dump_interval": 3600
+      }
+    },
+    {
+      "tag": "forward_local",
+      "type": "forward",
+      "args": {
+        "concurrent": 2,
+        "upstreams": [
+          {
+            "addr": "tls://223.5.5.5",
+            "enable_pipeline": true
+          },
+          {
+            "addr": "https://223.6.6.6/dns-query",
+            "enable_http3": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "local_ecs",
+      "type": "ecs_handler",
+      "args": {
+        "forward": true,
+        "send": false
+      }
+    },
+    {
+      "tag": "forward_local_ecs",
+      "type": "sequence",
+      "args": [
+        {
+          "exec": "$local_ecs"
+        },
+        {
+          "exec": "$forward_local"
+        }
+      ]
+    },
+    {
+      "tag": "forward_remote",
+      "type": "forward",
+      "args": {
+        "concurrent": 2,
+        "upstreams": [
+          {
+            "addr": "https://8.8.8.8/dns-query"
+          },
+          {
+            "addr": "https://doh.__DDNS_DOMAIN__/dns-relay",
+            "bootstrap": "223.6.6.6"
+          }
+        ]
+      }
+    },
+    {
+      "tag": "forward_remote_upstream",
+      "type": "sequence",
+      "args": [
+        {
+          "exec": "prefer_ipv4"
+        },
+        {
+          "exec": "$forward_remote"
+        }
+      ]
+    },
+    {
+      "tag": "has_resp_sequence",
+      "type": "sequence",
+      "args": [
+        {
+          "matches": "qname $ddnslist",
+          "exec": "ttl 5-5"
+        },
+        {
+          "matches": "has_resp",
+          "exec": "accept"
+        }
+      ]
+    },
+    {
+      "tag": "query_is_non_local_ip",
+      "type": "sequence",
+      "args": [
+        {
+          "exec": "$forward_local_ecs"
+        },
+        {
+          "matches": "!resp_ip $geoip_cn",
+          "exec": "drop_resp"
+        }
+      ]
+    },
+    {
+      "tag": "fallback",
+      "type": "fallback",
+      "args": {
+        "primary": "query_is_non_local_ip",
+        "secondary": "forward_remote_upstream",
+        "threshold": 500,
+        "always_standby": true
+      }
+    },
+    {
+      "tag": "cache_gate",
+      "type": "sequence",
+      "args": [
+        {
+          "matches": [
+            "_false",
+            "!qname $ddnslist",
+            "!qname $local_ptr"
+          ],
+          "exec": "$lazy_cache"
+        }
+      ]
+    },
+    {
+      "tag": "main_sequence",
+      "type": "sequence",
+      "args": [
+        {
+          "exec": "$stats_collector"
+        },
+        {
+          "exec": "$cache_gate"
+        },
+        {
+          "exec": "jump has_resp_sequence"
+        },
+        {
+          "matches": "qname $ddnslist",
+          "exec": "$forward_local_ecs"
+        },
+        {
+          "exec": "jump has_resp_sequence"
+        },
+        {
+          "matches": "qname $whitelist",
+          "exec": "$forward_local_ecs"
+        },
+        {
+          "exec": "jump has_resp_sequence"
+        },
+        {
+          "matches": [
+            "qtype 12",
+            "qname $local_ptr"
+          ],
+          "exec": "reject 3"
+        },
+        {
+          "matches": "qtype 65",
+          "exec": "reject 3"
+        },
+        {
+          "matches": "qname $greylist",
+          "exec": "$forward_remote_upstream"
+        },
+        {
+          "exec": "jump has_resp_sequence"
+        },
+        {
+          "matches": "qname $geosite_cn",
+          "exec": "$forward_local_ecs"
+        },
+        {
+          "exec": "jump has_resp_sequence"
+        },
+        {
+          "matches": "qname $geosite_no_cn",
+          "exec": "$forward_remote_upstream"
+        },
+        {
+          "exec": "jump has_resp_sequence"
+        },
+        {
+          "exec": "$fallback"
+        },
+        {
+          "exec": "jump has_resp_sequence"
+        }
+      ]
+    },
+    {
+      "tag": "udp_server",
+      "type": "udp_server",
+      "args": {
+        "entry": "main_sequence",
+        "listen": "0.0.0.0:5335"
+      }
+    },
+    {
+      "tag": "tcp_server",
+      "type": "tcp_server",
+      "args": {
+        "entry": "main_sequence",
+        "listen": "0.0.0.0:5335"
+      }
+    }
+  ]
+}

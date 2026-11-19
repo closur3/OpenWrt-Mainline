@@ -110,7 +110,7 @@ jobs:
 
       - name: Prepare Custom Packages
         run: |
-          sed -i "s|__DDNS_DOMAIN__|$DDNS_DOMAIN|g" files/etc/config/mosdns files/etc/mosdns/rule/ddnslist.txt
+          grep -rlZ '__DDNS_DOMAIN__' files | xargs -0 -r sed -i "s|__DDNS_DOMAIN__|$DDNS_DOMAIN|g"
           [ -e files ] && mv files openwrt/files
           [ -e "$CONFIG_FILE" ] && mv "$CONFIG_FILE" openwrt/.config
           cd openwrt
